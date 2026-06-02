@@ -138,10 +138,37 @@ Durante el desarrollo se rechazaron activamente las siguientes sugerencias del I
 
 **Principio aplicado:** DDD / Resiliencia / Escalabilidad
 
+## Dashboard web (UI moderna)
+
+El portal incluye:
+
+- **Skeletons y spinners** con animación shimmer mientras cargan mapa, vehículos y alertas
+- **Toasts en tiempo real** al recibir `alert:new` por WebSocket (variantes success/warning/error)
+- **Feed de alertas** con iconografía, gradientes y severidad visual
+- **Agente IA** con sugerencias rápidas e indicador de escritura
+- **Banner de reconexión** con backoff exponencial cuando cae el socket
+
+Abrir http://localhost:3000/dashboard tras levantar la API y enviar telemetría de prueba.
+
+## Mobile + CI/CD
+
+```bash
+cd apps/mobile && npm start
+```
+
+- **DriverMapScreen**: mapa con tracking GPS y cola offline
+- **SyncScreen**: estado de red, pendientes SQLite y sync manual por lotes
+- **Fastlane** (`apps/mobile/fastlane/`): lanes `beta` para iOS/Android vía EAS Build
+- **GitHub Actions** (`mobile-ci.yml`): requiere secret `EXPO_TOKEN` para EAS en `main`
+
+```bash
+cd apps/mobile && bundle install && bundle exec fastlane ios beta
+```
+
 ## Tests
 
 ```bash
-npm test   # 22+ tests: unitarios, integración y e2e (Fastify inject)
+npm test   # 25+ tests: unitarios, integración, scheduler MV y e2e (Fastify inject)
 ```
 
 ## Licencia

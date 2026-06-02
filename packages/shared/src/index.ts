@@ -9,6 +9,7 @@ export const STOPPED_THRESHOLD_MINUTES = 20;
 export const CRITICAL_ZONE_STOPPED_MINUTES = 20;
 export const STOPPED_SPEED_KMH = 5;
 export const FUEL_LOW_THRESHOLD = 15;
+export const MATERIALIZED_VIEW_REFRESH_MS = 30_000;
 
 export const telemetryIngestSchema = z.object({
   event_id: z.string().uuid(),

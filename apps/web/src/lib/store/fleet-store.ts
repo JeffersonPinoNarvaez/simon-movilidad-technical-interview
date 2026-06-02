@@ -20,11 +20,16 @@ interface FleetStore {
   alerts: AlertNewEvent[];
   selectedVehicleId: string | null;
   wsConnected: boolean;
+  isLoadingVehicles: boolean;
+  isLoadingAlerts: boolean;
   setVehicles: (vehicles: VehicleState[]) => void;
+  setAlerts: (alerts: AlertNewEvent[]) => void;
   updateVehicle: (update: VehicleUpdateEvent) => void;
   addAlert: (alert: AlertNewEvent) => void;
   setSelectedVehicle: (id: string | null) => void;
   setWsConnected: (connected: boolean) => void;
+  setLoadingVehicles: (loading: boolean) => void;
+  setLoadingAlerts: (loading: boolean) => void;
 }
 
 export const useFleetStore = create<FleetStore>((set) => ({
@@ -32,11 +37,16 @@ export const useFleetStore = create<FleetStore>((set) => ({
   alerts: [],
   selectedVehicleId: null,
   wsConnected: false,
+  isLoadingVehicles: true,
+  isLoadingAlerts: true,
 
   setVehicles: (vehicles) =>
     set({
       vehicles: Object.fromEntries(vehicles.map((v) => [v.id, v])),
+      isLoadingVehicles: false,
     }),
+
+  setAlerts: (alerts) => set({ alerts, isLoadingAlerts: false }),
 
   updateVehicle: (update) =>
     set((state) => ({
@@ -61,9 +71,11 @@ export const useFleetStore = create<FleetStore>((set) => ({
 
   addAlert: (alert) =>
     set((state) => ({
-      alerts: [alert, ...state.alerts].slice(0, 50),
+      alerts: [alert, ...state.alerts.filter((a) => a.id !== alert.id)].slice(0, 50),
     })),
 
   setSelectedVehicle: (id) => set({ selectedVehicleId: id }),
   setWsConnected: (connected) => set({ wsConnected: connected }),
+  setLoadingVehicles: (loading) => set({ isLoadingVehicles: loading }),
+  setLoadingAlerts: (loading) => set({ isLoadingAlerts: loading }),
 }));

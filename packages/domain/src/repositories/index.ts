@@ -63,5 +63,6 @@ export interface ITelemetryRepository {
 
 export interface IAlertRepository {
   findActive(type?: AlertType | 'all'): Promise<Alert[]>;
+  hasActiveAlert(vehicleId: VehicleId, type: AlertType): Promise<boolean>;
   save(alert: Alert): Promise<void>;
 }

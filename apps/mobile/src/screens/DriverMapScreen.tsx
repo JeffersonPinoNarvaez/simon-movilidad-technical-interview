@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  SafeAreaView,
+  ActivityIndicator,
+} from 'react-native';
 import MapView, { Marker, type Region } from 'react-native-maps';
 import { StatusBar } from 'expo-status-bar';
 import * as Location from 'expo-location';
@@ -16,6 +23,7 @@ const BOGOTA_REGION: Region = {
 export function DriverMapScreen() {
   const [error, setError] = useState<string | null>(null);
   const [region, setRegion] = useState<Region>(BOGOTA_REGION);
+  const [locating, setLocating] = useState(true);
   const serviceRef = useRef<LocationService | null>(null);
   const { pendingCount, isTracking, setPendingCount, setTracking } = useLocationStore();
 
@@ -39,6 +47,7 @@ export function DriverMapScreen() {
           longitudeDelta: 0.02,
         });
       }
+      setLocating(false);
     });
   }, []);
 
@@ -61,42 +70,133 @@ export function DriverMapScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
+
       <View style={styles.header}>
+        <Text style={styles.eyebrow}>FleetPortal Driver</Text>
         <Text style={styles.title}>Mi ruta</Text>
-        <Text style={styles.subtitle}>
-          {isTracking ? 'Enviando telemetría' : 'Tracking detenido'} · Pendientes: {pendingCount}
-        </Text>
+        <View style={styles.statsRow}>
+          <View style={[styles.statPill, isTracking ? styles.statPillLive : styles.statPillIdle]}>
+            <View style={[styles.dot, isTracking && styles.dotLive]} />
+            <Text style={styles.statText}>{isTracking ? 'En vivo' : 'Detenido'}</Text>
+          </View>
+          <View style={styles.statPill}>
+            <Text style={styles.statLabel}>Cola</Text>
+            <Text style={styles.statValue}>{pendingCount}</Text>
+          </View>
+        </View>
       </View>
 
-      <View style={styles.mapContainer}>
+      <View style={styles.mapWrapper}>
+        {locating && (
+          <View style={styles.mapOverlay}>
+            <ActivityIndicator size="large" color="#34d399" />
+            <Text style={styles.mapOverlayText}>Obteniendo ubicación…</Text>
+          </View>
+        )}
         <MapView style={styles.map} region={region} onRegionChangeComplete={setRegion}>
-          <Marker coordinate={{ latitude: region.latitude, longitude: region.longitude }} title="Tu posición" />
+          <Marker
+            coordinate={{ latitude: region.latitude, longitude: region.longitude }}
+            title="Tu posición"
+          />
         </MapView>
       </View>
 
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
 
-      <TouchableOpacity style={styles.button} onPress={toggleTracking}>
-        <Text style={styles.buttonText}>{isTracking ? 'Detener tracking' : 'Iniciar tracking'}</Text>
+      <TouchableOpacity
+        style={[styles.button, isTracking && styles.buttonStop]}
+        onPress={toggleTracking}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.buttonText}>
+          {isTracking ? '■  Detener tracking' : '▶  Iniciar tracking'}
+        </Text>
       </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  header: { padding: 16 },
-  title: { fontSize: 22, fontWeight: '700', color: '#f8fafc' },
-  subtitle: { fontSize: 13, color: '#94a3b8', marginTop: 4 },
-  mapContainer: { flex: 1, marginHorizontal: 16, borderRadius: 12, overflow: 'hidden' },
-  map: { flex: 1 },
-  error: { color: '#f87171', paddingHorizontal: 16, marginTop: 8 },
-  button: {
-    backgroundColor: '#16a34a',
-    margin: 16,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
+  container: { flex: 1, backgroundColor: '#020617' },
+  header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    color: '#34d399',
+    opacity: 0.9,
   },
-  buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
+  title: { fontSize: 28, fontWeight: '700', color: '#f8fafc', marginTop: 4 },
+  statsRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  statPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(30, 41, 59, 0.8)',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  statPillLive: {
+    borderColor: 'rgba(52, 211, 153, 0.35)',
+    backgroundColor: 'rgba(6, 78, 59, 0.35)',
+  },
+  statPillIdle: { borderColor: 'rgba(148, 163, 184, 0.2)' },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#64748b' },
+  dotLive: { backgroundColor: '#34d399' },
+  statText: { color: '#e2e8f0', fontSize: 13, fontWeight: '600' },
+  statLabel: { color: '#64748b', fontSize: 11, textTransform: 'uppercase' },
+  statValue: { color: '#f1f5f9', fontSize: 14, fontWeight: '700' },
+  mapWrapper: {
+    flex: 1,
+    marginHorizontal: 16,
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  map: { flex: 1 },
+  mapOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  mapOverlayText: { color: '#94a3b8', fontSize: 14 },
+  errorBanner: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    backgroundColor: 'rgba(127, 29, 29, 0.5)',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.3)',
+  },
+  errorText: { color: '#fecaca', fontSize: 13, textAlign: 'center' },
+  button: {
+    margin: 16,
+    borderRadius: 16,
+    paddingVertical: 18,
+    alignItems: 'center',
+    backgroundColor: '#059669',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  buttonStop: {
+    backgroundColor: '#dc2626',
+    shadowColor: '#dc2626',
+  },
+  buttonText: { color: '#fff', fontWeight: '700', fontSize: 16, letterSpacing: 0.3 },
 });

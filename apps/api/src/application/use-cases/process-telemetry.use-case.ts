@@ -83,6 +83,10 @@ export class ProcessTelemetryUseCase {
 
     const alerts = await this.evaluateAlerts(event, vehicleId, isStopped, criticalZone);
     for (const alertData of alerts) {
+      const alertType = alertData.type as Alert['type'];
+      const alreadyActive = await this.alertRepo.hasActiveAlert(vehicleId, alertType);
+      if (alreadyActive) continue;
+
       const alert = Alert.create({
         id: crypto.randomUUID(),
         vehicleId,

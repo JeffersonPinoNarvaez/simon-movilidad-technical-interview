@@ -1,0 +1,19 @@
+default_platform(:ios)
+
+platform :ios do
+  desc 'Build iOS app via EAS and upload to TestFlight (requires EXPO_TOKEN + App Store Connect API key)'
+  lane :beta do
+    sh('cd ../.. && npm ci')
+    sh('cd .. && eas build --platform ios --profile production --non-interactive')
+    UI.success('EAS build triggered. Use eas submit for TestFlight when build completes.')
+  end
+end
+
+platform :android do
+  desc 'Build Android app via EAS and upload to Play Internal Testing'
+  lane :beta do
+    sh('cd ../.. && npm ci')
+    sh('cd .. && eas build --platform android --profile production --non-interactive')
+    UI.success('EAS build triggered. Use eas submit for Play Store when build completes.')
+  end
+end

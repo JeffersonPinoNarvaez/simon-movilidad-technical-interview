@@ -160,6 +160,16 @@ export class TimescaleAlertRepository implements IAlertRepository {
     return result.rows.map((row) => this.mapRow(row));
   }
 
+  async hasActiveAlert(vehicleId: VehicleId, type: AlertType): Promise<boolean> {
+    const result = await this.pool.query(
+      `SELECT EXISTS(
+         SELECT 1 FROM alerts WHERE vehicle_id = $1 AND type = $2 AND active = TRUE
+       ) AS exists`,
+      [vehicleId.toString(), type],
+    );
+    return Boolean(result.rows[0]?.exists);
+  }
+
   async save(alert: Alert): Promise<void> {
     await this.pool.query(
       `INSERT INTO alerts (id, vehicle_id, type, message, severity, active, created_at)

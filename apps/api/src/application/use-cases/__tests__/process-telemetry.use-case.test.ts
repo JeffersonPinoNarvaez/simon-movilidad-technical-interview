@@ -12,6 +12,12 @@ const criticalZone = CriticalZone.create({
 
 describe('ProcessTelemetryUseCase integration', () => {
   let useCase: ProcessTelemetryUseCase;
+  let alertRepo: {
+    save: ReturnType<typeof vi.fn>;
+    findActive: ReturnType<typeof vi.fn>;
+    hasActiveAlert: ReturnType<typeof vi.fn>;
+  };
+
   const stoppedSessionRepo = {
     upsert: vi.fn(),
     clear: vi.fn(),
@@ -24,9 +30,14 @@ describe('ProcessTelemetryUseCase integration', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    alertRepo = {
+      save: vi.fn(),
+      findActive: vi.fn(),
+      hasActiveAlert: vi.fn().mockResolvedValue(false),
+    };
     useCase = new ProcessTelemetryUseCase(
       { save: vi.fn(), findByVehicleId: vi.fn(), refreshCurrentStateView: vi.fn() },
-      { save: vi.fn(), findActive: vi.fn() },
+      alertRepo,
       { updateStatus: vi.fn(), findAll: vi.fn(), findById: vi.fn() },
       stoppedSessionRepo,
       { resolveZone: vi.fn().mockResolvedValue(criticalZone) } as unknown as ZoneEnrichmentService,
@@ -49,5 +60,26 @@ describe('ProcessTelemetryUseCase integration', () => {
 
     expect(result.alerts.some((a) => a.type === 'critical_zone')).toBe(true);
     expect(stoppedSessionRepo.upsert).toHaveBeenCalled();
+    expect(alertRepo.save).toHaveBeenCalled();
+  });
+
+  it('skips duplicate alert when same type is already active', async () => {
+    alertRepo.hasActiveAlert.mockResolvedValue(true);
+
+    await useCase.execute({
+      eventId: 'e2',
+      deviceId: 'c0000000-0000-4000-8000-000000000001',
+      vehicleId: 'a0000000-0000-4000-8000-000000000001',
+      timestamp: new Date().toISOString(),
+      lat: 4.6097,
+      lng: -74.0817,
+      speedKmh: 0,
+    });
+
+    expect(alertRepo.hasActiveAlert).toHaveBeenCalledWith(
+      expect.anything(),
+      'critical_zone',
+    );
+    expect(alertRepo.save).not.toHaveBeenCalled();
   });
 });

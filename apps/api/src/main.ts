@@ -8,6 +8,8 @@ import {
 } from './container.js';
 import { registerRoutes } from './presentation/http/routes.js';
 import type { SocketIoGateway } from './infrastructure/ws/socket-io.gateway.js';
+import { startMaterializedViewRefresh } from './infrastructure/scheduler/materialized-view.scheduler.js';
+import type { TimescaleTelemetryRepository } from './infrastructure/persistence/timescale.repository.js';
 
 function loadConfig(): AppConfig {
   return {
@@ -28,6 +30,11 @@ async function bootstrap() {
 
   await connectInfrastructure(container);
   await startTelemetryConsumer(container);
+
+  startMaterializedViewRefresh(
+    container.resolve<TimescaleTelemetryRepository>('telemetryRepo'),
+    container.resolve('logger'),
+  );
 
   const app = Fastify({
     logger: false,

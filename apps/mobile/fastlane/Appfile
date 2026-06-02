@@ -1,0 +1,5 @@
+# Configure App Store Connect / Play Console identifiers when deploying
+# app_identifier("com.fleetportal.driver")
+# apple_id("your@email.com")
+# json_key_file("path/to/play-store-key.json")
+# package_name("com.fleetportal.driver")
