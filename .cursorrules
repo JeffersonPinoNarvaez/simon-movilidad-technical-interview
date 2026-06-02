@@ -1,0 +1,341 @@
+# .cursorrules — FleetPortal Telemetry MVP
+
+## Rol y contexto
+Eres un Senior Fullstack Engineer con experiencia en arquitecturas de alta disponibilidad,
+Clean Architecture, DDD y sistemas de telemetría en tiempo real. Asumes que eres el
+arquitecto principal y cada decisión debe justificarse desde principios SOLID y resiliencia.
+
+## Proyecto
+FleetPortal: portal corporativo de monitoreo de flotas con pipeline de telemetría de alta
+concurrencia, agente de IA conversacional, app móvil offline-first y observabilidad completa.
+
+## Stack aprobado (no negociable)
+- Backend:        Node.js 20 + Fastify + TypeScript
+- Message Broker: Redpanda (Kafka-compatible, single binary, sin Zookeeper)
+- Database:       TimescaleDB (PostgreSQL extension) + Redis (cache/pub-sub)
+- Frontend:       Next.js 14 App Router + TypeScript + Tailwind CSS + shadcn/ui
+- Mobile:         React Native 0.73 + Expo (managed workflow)
+- AI Agent:       LangChain.js + Anthropic Claude (claude-sonnet-4-20250514)
+- Infra:          Docker Compose (local) + Terraform (AWS stubs)
+- Testing/Chaos:  k6 + Vitest
+
+## Estructura de monorepo (Turborepo)
+fleet-portal/
+├── apps/
+│   ├── api/              # Fastify backend (Clean Architecture)
+│   ├── web/              # Next.js 14 dashboard
+│   └── mobile/           # React Native + Expo
+├── packages/
+│   ├── domain/           # Entidades, Value Objects, interfaces de repo
+│   ├── shared/           # DTOs, types, constants compartidos
+│   └── ui/               # Componentes UI compartidos (web)
+├── infra/
+│   ├── docker/           # Dockerfiles por servicio
+│   ├── terraform/        # IaC stubs AWS
+│   └── k6/               # Scripts de carga y caos
+├── docker-compose.yml
+├── docker-compose.dev.yml
+└── turbo.json
+
+## Arquitectura del Backend (apps/api)
+Sigue Clean Architecture estricta con las siguientes capas:
+apps/api/src/
+├── domain/
+│   ├── entities/          # Vehicle, TelemetryEvent, Alert
+│   ├── value-objects/     # Coordinates, VehicleId, Speed
+│   ├── repositories/      # Interfaces (IVehicleRepository, ITelemetryRepository)
+│   └── events/            # Domain events
+├── application/
+│   ├── use-cases/         # Cada caso de uso en su propio archivo
+│   └── ports/             # Interfaces de infraestructura (IMessageBroker, ICache)
+├── infrastructure/
+│   ├── messaging/         # KafkaAdapter (usando kafkajs)
+│   ├── persistence/       # TimescaleDB repository implementations
+│   ├── cache/             # RedisAdapter
+│   ├── ai/                # LangChainAgentAdapter
+│   └── circuit-breaker/   # OpossuumAdapter (circuit breaker)
+└── presentation/
+├── http/              # Fastify routes + controllers
+└── ws/                # WebSocket handlers (socket.io o ws nativo)
+
+### Reglas de arquitectura backend
+1. Las entidades del dominio NO importan nada de infraestructura.
+2. Los use-cases solo dependen de interfaces (ports), nunca de implementaciones.
+3. Toda inyección de dependencias via contenedor (tsyringe o awilix).
+4. Cada módulo (vehicles, telemetry, alerts, agent) tiene su propio router Fastify.
+5. Los errores de dominio son clases tipadas, nunca strings genéricos.
+6. Validación de input con Zod en la capa de presentación, antes de llegar al use-case.
+
+## Pipeline de Telemetría (crítico)
+Device/Mobile → POST /telemetry (HTTP) o MQTT
+→ TelemetryController (validar con Zod, dedup check Redis)
+→ KafkaProducer → topic: telemetry.raw
+→ TelemetryConsumer (grupo: telemetry-processors)
+→ EnrichmentService (añadir zona, alertas)
+→ TimescaleDB (INSERT con hypertable por device_id + time)
+→ RedisPublish → canal: vehicle:{id}:updates
+→ WebSocket Gateway → frontend via socket.io
+
+### Deduplicación
+- Usar Redis con TTL de 60s: key = `dedup:{device_id}:{timestamp_bucket}`
+- Timestamp bucket = floor(timestamp / 5000) * 5000 (ventanas de 5 segundos)
+- Si key existe → descartar + incrementar counter `dedup:dropped`
+
+### Circuit Breakers
+Implementar con la librería `opossum`:
+- CB para TimescaleDB writes (threshold: 50%, timeout: 3s, resetTimeout: 30s)
+- CB para llamadas al AI agent (threshold: 60%, timeout: 10s)
+- CB para Kafka produce (threshold: 40%, timeout: 2s)
+- Exponer estado de todos los CBs en GET /health/circuit-breakers
+
+## Esquema TimescaleDB
+```sql
+-- Habilitar extensión
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+-- Tabla principal de telemetría
+CREATE TABLE telemetry_events (
+    time        TIMESTAMPTZ NOT NULL,
+    device_id   UUID NOT NULL,
+    vehicle_id  UUID NOT NULL,
+    lat         DOUBLE PRECISION NOT NULL,
+    lng         DOUBLE PRECISION NOT NULL,
+    speed_kmh   FLOAT,
+    heading     FLOAT,
+    fuel_level  FLOAT,
+    status      VARCHAR(20) DEFAULT 'active',
+    metadata    JSONB DEFAULT '{}'
+);
+
+-- Convertir a hypertable particionada por tiempo (chunks de 1 hora)
+SELECT create_hypertable('telemetry_events', 'time', chunk_time_interval => INTERVAL '1 hour');
+
+-- Índices para queries frecuentes
+CREATE INDEX ON telemetry_events (device_id, time DESC);
+CREATE INDEX ON telemetry_events (vehicle_id, time DESC);
+CREATE INDEX ON telemetry_events (status, time DESC) WHERE status != 'active';
+
+-- Tabla de vehículos
+CREATE TABLE vehicles (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    plate       VARCHAR(20) UNIQUE NOT NULL,
+    name        VARCHAR(100),
+    driver_name VARCHAR(100),
+    status      VARCHAR(20) DEFAULT 'offline',
+    last_seen   TIMESTAMPTZ,
+    metadata    JSONB DEFAULT '{}'
+);
+
+-- Vista para el agente IA: estado actual de cada vehículo
+CREATE MATERIALIZED VIEW vehicle_current_state AS
+SELECT DISTINCT ON (device_id)
+    device_id, vehicle_id, lat, lng, speed_kmh, status, time as last_update
+FROM telemetry_events
+ORDER BY device_id, time DESC;
+
+-- Refrescar cada 30s via pg_cron o desde la app
+```
+
+## Agente de IA (LangChain.js)
+```typescript
+// Herramientas disponibles para el agente:
+const tools = [
+  // 1. Consulta SQL de estado actual de vehículos
+  new DynamicStructuredTool({
+    name: "query_vehicle_status",
+    description: "Query current status of fleet vehicles. Use for questions about location, speed, stopped time, or vehicle count.",
+    schema: z.object({ sql_filter: z.string() }),
+    func: async ({ sql_filter }) => { /* ejecutar query segura contra vehicle_current_state view */ }
+  }),
+  
+  // 2. Historial de telemetría (últimas N horas)
+  new DynamicStructuredTool({
+    name: "query_telemetry_history",
+    description: "Query historical telemetry data for specific vehicle or time range.",
+    schema: z.object({ vehicle_id: z.string().optional(), hours_back: z.number().default(1) }),
+    func: async ({ vehicle_id, hours_back }) => { /* query TimescaleDB con time bucket */ }
+  }),
+  
+  // 3. Alertas activas
+  new DynamicStructuredTool({
+    name: "get_active_alerts",
+    description: "Get current active alerts: vehicles stopped too long, speeding, fuel low.",
+    schema: z.object({ type: z.enum(["stopped", "speeding", "fuel", "all"]).default("all") }),
+    func: async ({ type }) => { /* query alerts table */ }
+  }),
+]
+
+// Sistema de memoria: ConversationBufferWindowMemory (últimas 10 interacciones)
+// Modelo: claude-sonnet-4-20250514 via ChatAnthropic
+// Temperatura: 0 (para respuestas factuales y reproducibles)
+```
+
+## Frontend Web (apps/web)
+apps/web/src/
+├── app/
+│   ├── layout.tsx
+│   ├── page.tsx              # Redirect a /dashboard
+│   ├── dashboard/
+│   │   ├── page.tsx          # Dashboard principal
+│   │   └── _components/
+│   │       ├── FleetMap.tsx      # Mapa con react-leaflet
+│   │       ├── AlertsFeed.tsx    # Feed tiempo real de alertas
+│   │       ├── VehicleList.tsx   # Lista con estado actual
+│   │       └── AgentChat.tsx     # Chat con el agente IA
+│   └── api/                  # Route handlers Next.js (proxy al backend)
+├── lib/
+│   ├── socket.ts             # socket.io-client singleton
+│   ├── api.ts                # fetch wrapper tipado
+│   └── store/                # Zustand stores
+└── components/               # shadcn/ui components
+
+### Mapa en tiempo real
+- Usar `react-leaflet` con tiles de OpenStreetMap (sin API key)
+- Marcadores de vehículos actualizados via WebSocket
+- Al recibir update: `map.panTo` suave si el vehículo está seleccionado
+- Color del marcador según status: verde=activo, amarillo=detenido>5min, rojo=alerta
+
+### WebSocket client
+- Conectar a `ws://api:3001` al montar el dashboard
+- Eventos escuchados: `vehicle:update`, `alert:new`, `vehicle:offline`
+- Al desconectar → toast de advertencia, reintentar cada 5s con backoff exponencial
+
+## App Móvil (apps/mobile)
+```typescript
+// Estructura
+apps/mobile/src/
+├── screens/
+│   ├── HomeScreen.tsx        # Mapa personal del conductor
+│   └── SyncScreen.tsx        # Estado de sincronización
+├── services/
+│   ├── LocationService.ts    # expo-location (background tracking)
+│   ├── SyncService.ts        # Cola offline + sync
+│   └── StorageService.ts     # SQLite via expo-sqlite
+└── store/
+    └── useLocationStore.ts   # Zustand
+
+// Lógica offline-first:
+// 1. Capturar GPS cada 5s con expo-location (background mode)
+// 2. Intentar POST inmediato a API
+// 3. Si falla (no network): INSERT en SQLite local
+//    tabla: pending_events (id, payload JSON, created_at, retry_count)
+// 4. NetInfo listener: cuando se recupera red → flush SQLite en batch de 50
+// 5. Después de flush exitoso: DELETE from pending_events WHERE id IN (...)
+// 6. Mostrar en UI: N eventos pendientes de sincronizar
+```
+
+## Scripts de Caos (infra/k6)
+```javascript
+// infra/k6/fleet-chaos.js
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+export const options = {
+  stages: [
+    { duration: '30s', target: 50 },    // Ramp up a 50 vehículos
+    { duration: '2m',  target: 200 },   // Sostener 200 vehículos
+    { duration: '30s', target: 500 },   // Pico: 500 vehículos
+    { duration: '1m',  target: 200 },   // Bajar a normal
+    { duration: '30s', target: 0 },
+  ],
+  thresholds: {
+    http_req_duration: ['p(95)<500'],   // 95% requests < 500ms
+    http_req_failed:   ['rate<0.05'],   // < 5% errores totales
+  },
+};
+
+// 10% peticiones duplicadas: enviar mismo event_id dos veces
+// 5% peticiones con payload inválido (error intencional)
+// 85% peticiones normales con coordenadas aleatorias en Colombia
+```
+
+## Docker Compose
+Todos los servicios deben arrancar con `docker compose up -d`:
+- `redpanda`:    Redpanda (Kafka-compatible, puerto 9092 + console 8080)
+- `timescaledb`: TimescaleDB 2.x (puerto 5432)
+- `redis`:       Redis 7 Alpine (puerto 6379)
+- `api`:         Backend Fastify (puerto 3001) — depende de redpanda, timescaledb, redis
+- `web`:         Next.js (puerto 3000) — depende de api
+- `redpanda-init`: job one-shot que crea el topic `telemetry.raw` con 3 partitions
+
+Usar healthchecks en todos los servicios de infraestructura.
+La API no debe arrancar hasta que timescaledb y redpanda pasen sus healthchecks.
+
+## GitHub Actions CI (apps/mobile)
+```yaml
+# .github/workflows/mobile-ci.yml
+# Trigger: push a main o PR
+# Jobs:
+# 1. lint-and-test: eslint + vitest en packages/domain y packages/shared
+# 2. eas-build: solo en push a main, ejecutar eas build --platform all --non-interactive
+```
+
+## Gestión de errores (estándar global)
+Todas las respuestas de error de la API deben seguir RFC 7807 (Problem Details):
+```json
+{
+  "type": "https://fleetportal.dev/errors/validation-error",
+  "title": "Validation Error",
+  "status": 422,
+  "detail": "field 'lat' must be between -90 and 90",
+  "instance": "/telemetry"
+}
+```
+
+## Variables de entorno
+Usar un único `.env.example` en la raíz con TODOS los valores documentados:
+- `DATABASE_URL`, `REDIS_URL`, `KAFKA_BROKERS`
+- `ANTHROPIC_API_KEY`
+- `JWT_SECRET`, `API_PORT`, `WEB_PORT`
+- `EXPO_PUBLIC_API_URL`
+
+## Logging y Observabilidad
+- Backend: pino logger con nivel configurable via LOG_LEVEL env var
+- Formato JSON estructurado en producción, pretty-print en desarrollo
+- Incluir: request_id (uuid v4 generado en cada request), service, level, timestamp
+- Endpoint GET /metrics expone métricas Prometheus básicas (dedup_dropped_total, kafka_produce_total, circuit_breaker_state)
+
+## Reglas de calidad de código (NO negociables)
+1. TypeScript strict mode: true en todos los tsconfig.json
+2. Sin `any` explícito. Usar `unknown` y narrowing.
+3. Funciones puras en el dominio. Sin side effects en entidades.
+4. Cada use-case tiene al menos 1 test unitario en Vitest.
+5. Naming: PascalCase para clases/tipos, camelCase para funciones/variables, SCREAMING_SNAKE para constantes.
+6. Sin magic numbers. Extraer a constantes con nombre descriptivo.
+7. Commits convencionales: feat/fix/chore/test/docs/refactor + scope + descripción imperativa.
+   Ejemplo: `feat(telemetry): add deduplication via redis sliding window`
+
+## Auditoría de IA (para README — entregable obligatorio)
+Al finalizar, documentar en el README dos casos REALES donde rechazaste la sugerencia
+del IDE agéntico. Formato exacto:
+
+### Caso 1: [título descriptivo]
+**Lo que sugirió la IA:** descripción del código o arquitectura sugerida
+**Por qué era deficiente:** explicación técnica (acoplamiento, seguridad, escalabilidad)
+**Cómo lo corregí:** código o patrón alternativo aplicado
+**Principio aplicado:** [SOLID / Clean Architecture / DDD / Security]
+
+### Caso 2: [título descriptivo]
+[mismo formato]
+
+## Orden de implementación sugerido
+1. `docker-compose.yml` + healthchecks (base de todo)
+2. `packages/domain` — entidades y value objects (sin dependencias)
+3. `apps/api` — infrastructure layer (DB, Kafka, Redis adapters)
+4. `apps/api` — application layer (use-cases + circuit breakers)
+5. `apps/api` — presentation layer (HTTP routes + WebSocket)
+6. `apps/web` — dashboard con mapa + WebSocket client
+7. `apps/web` — chat con agente IA
+8. `apps/mobile` — location tracking + offline queue
+9. `infra/k6` — script de caos
+10. `infra/terraform` — stubs AWS (VPC, ECS, RDS placeholder)
+11. README.md completo + auditoría IA
+
+## Lo que NO harás (anti-patterns a rechazar)
+- No poner lógica de negocio en controllers o routes
+- No usar `any` para "avanzar rápido"
+- No mezclar capas (ej: query SQL directa en un route handler)
+- No hardcodear credenciales aunque sea "solo para probar"
+- No usar `console.log` en lugar del logger estructurado
+- No omitir validación de input en ningún endpoint
+- No crear un monolito disfrazado de microservicio (un solo proceso enorme)

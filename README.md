@@ -107,7 +107,7 @@ fleet-portal/
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | GET | `/health` | Health check |
-| GET | `/health/circuit-breakers` | Estado de circuit breakers |
+| GET | `/health/circuit-breakers` | Estado de circuit breakers por frontera de servicio |
 | GET | `/metrics` | Métricas Prometheus |
 | POST | `/telemetry` | Ingesta de telemetría |
 | GET | `/vehicles` | Lista de vehículos |
@@ -124,7 +124,7 @@ Durante el desarrollo se rechazaron activamente las siguientes sugerencias del I
 
 **Por qué era deficiente:** Viola Clean Architecture al acoplar la capa de presentación con TimescaleDB. Expone riesgo de SQL injection si el agente genera filtros arbitrarios. Imposibilita testear la lógica de consulta sin levantar HTTP.
 
-**Cómo lo corregí:** El `LangChainAgentAdapter` en infraestructura construye contexto de flota con queries parametrizadas predefinidas contra `vehicle_current_state` y `alerts`. El use-case `ChatWithAgentUseCase` depende solo de `IAgentService`.
+**Cómo lo corregí:** `AgentQueryService` en application con filtros whitelist (`in_critical_zone`, `plate:XXX`) y `createAgentTools()` con `DynamicStructuredTool` de LangChain. El agente invoca tools vía `bindTools` con loop de hasta 5 iteraciones.
 
 **Principio aplicado:** Clean Architecture / SOLID (Dependency Inversion)
 
@@ -141,7 +141,7 @@ Durante el desarrollo se rechazaron activamente las siguientes sugerencias del I
 ## Tests
 
 ```bash
-npm test
+npm test   # 22+ tests: unitarios, integración y e2e (Fastify inject)
 ```
 
 ## Licencia
