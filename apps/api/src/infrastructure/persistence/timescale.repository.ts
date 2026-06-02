@@ -13,8 +13,10 @@ import type {
   IVehicleRepository,
   ITelemetryRepository,
   IAlertRepository,
+  ICriticalZoneRepository,
+  IStoppedSessionRepository,
 } from '@fleet-portal/domain';
-import { CircuitBreakerService } from '../circuit-breaker/circuit-breaker.service.js';
+import { CircuitBreakerService, OpossumAdapter, CB_SERVICE_BOUNDARIES } from '../circuit-breaker/opossum.adapter.js';
 import type { Logger } from 'pino';
 
 const { Pool } = pg;
@@ -22,7 +24,7 @@ const { Pool } = pg;
 export class TimescaleVehicleRepository implements IVehicleRepository {
   constructor(
     private readonly pool: pg.Pool,
-    private readonly circuitBreaker: CircuitBreakerService,
+    private readonly circuitBreaker: OpossumAdapter,
   ) {}
 
   async findAll(): Promise<Vehicle[]> {
@@ -83,12 +85,12 @@ export class TimescaleVehicleRepository implements IVehicleRepository {
 export class TimescaleTelemetryRepository implements ITelemetryRepository {
   constructor(
     private readonly pool: pg.Pool,
-    private readonly circuitBreaker: CircuitBreakerService,
+    private readonly circuitBreaker: OpossumAdapter,
   ) {}
 
   async save(event: TelemetryEvent): Promise<void> {
     const insert = this.circuitBreaker.wrap(
-      'db-telemetry-save',
+      CB_SERVICE_BOUNDARIES.PROCESSOR_TO_PERSISTENCE,
       async () => {
         await this.pool.query(
           `INSERT INTO telemetry_events
@@ -192,4 +194,87 @@ export function createPool(databaseUrl: string, logger: Logger): pg.Pool {
   const pool = new Pool({ connectionString: databaseUrl });
   pool.on('error', (err) => logger.error({ err }, 'PostgreSQL pool error'));
   return pool;
+}
+
+export class TimescaleCriticalZoneRepository implements ICriticalZoneRepository {
+  constructor(private readonly pool: pg.Pool) {}
+
+  async findAll() {
+    const result = await this.pool.query(
+      `SELECT id, name, lat_min, lat_max, lng_min, lng_max, severity FROM critical_zones`,
+    );
+    return result.rows.map((row) => ({
+      id: row.id as string,
+      name: row.name as string,
+      latMin: row.lat_min as number,
+      latMax: row.lat_max as number,
+      lngMin: row.lng_min as number,
+      lngMax: row.lng_max as number,
+      severity: row.severity as string,
+    }));
+  }
+}
+
+export class TimescaleStoppedSessionRepository implements IStoppedSessionRepository {
+  constructor(private readonly pool: pg.Pool) {}
+
+  async upsert(
+    vehicleId: string,
+    zoneId: string | null,
+    stoppedSince: Date,
+    lat: number,
+    lng: number,
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO vehicle_stopped_sessions (vehicle_id, zone_id, stopped_since, last_lat, last_lng)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (vehicle_id) DO UPDATE SET
+         zone_id = EXCLUDED.zone_id,
+         last_lat = EXCLUDED.last_lat,
+         last_lng = EXCLUDED.last_lng`,
+      [vehicleId, zoneId, stoppedSince, lat, lng],
+    );
+  }
+
+  async clear(vehicleId: string): Promise<void> {
+    await this.pool.query(`DELETE FROM vehicle_stopped_sessions WHERE vehicle_id = $1`, [vehicleId]);
+  }
+
+  async findByVehicleId(vehicleId: string) {
+    const result = await this.pool.query(
+      `SELECT zone_id, stopped_since FROM vehicle_stopped_sessions WHERE vehicle_id = $1`,
+      [vehicleId],
+    );
+    if (result.rows.length === 0) return null;
+    const row = result.rows[0];
+    return {
+      zoneId: row.zone_id as string | null,
+      stoppedSince: new Date(row.stopped_since as string),
+    };
+  }
+
+  async findStoppedInCriticalZone(minutes: number) {
+    const result = await this.pool.query(
+      `SELECT vss.vehicle_id, v.plate, cz.name AS zone_name, vss.stopped_since,
+              vss.last_lat, vss.last_lng,
+              EXTRACT(EPOCH FROM (NOW() - vss.stopped_since)) / 60 AS minutes_stopped
+       FROM vehicle_stopped_sessions vss
+       JOIN vehicles v ON v.id = vss.vehicle_id
+       JOIN critical_zones cz ON cz.id = vss.zone_id
+       WHERE vss.zone_id IS NOT NULL
+         AND EXTRACT(EPOCH FROM (NOW() - vss.stopped_since)) / 60 >= $1
+       ORDER BY vss.stopped_since ASC`,
+      [minutes],
+    );
+
+    return result.rows.map((row) => ({
+      vehicleId: row.vehicle_id as string,
+      plate: row.plate as string,
+      zoneName: row.zone_name as string,
+      stoppedSince: new Date(row.stopped_since as string),
+      minutesStopped: Math.floor(row.minutes_stopped as number),
+      lat: row.last_lat as number,
+      lng: row.last_lng as number,
+    }));
+  }
 }

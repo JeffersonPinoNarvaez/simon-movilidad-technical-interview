@@ -3,7 +3,7 @@ import pino from 'pino';
 import { Registry } from 'prom-client';
 import { KAFKA_CONSUMER_GROUP, TELEMETRY_TOPIC } from '@fleet-portal/shared';
 
-import { CircuitBreakerService } from './infrastructure/circuit-breaker/circuit-breaker.service.js';
+import { OpossumAdapter } from './infrastructure/circuit-breaker/opossum.adapter.js';
 import { RedisAdapter } from './infrastructure/cache/redis.adapter.js';
 import { KafkaAdapter } from './infrastructure/messaging/kafka.adapter.js';
 import {
@@ -11,6 +11,8 @@ import {
   TimescaleVehicleRepository,
   TimescaleTelemetryRepository,
   TimescaleAlertRepository,
+  TimescaleCriticalZoneRepository,
+  TimescaleStoppedSessionRepository,
 } from './infrastructure/persistence/timescale.repository.js';
 import { LangChainAgentAdapter } from './infrastructure/ai/langchain-agent.adapter.js';
 import { SocketIoGateway } from './infrastructure/ws/socket-io.gateway.js';
@@ -20,6 +22,8 @@ import { ProcessTelemetryUseCase } from './application/use-cases/process-telemet
 import { ListVehiclesUseCase } from './application/use-cases/list-vehicles.use-case.js';
 import { GetActiveAlertsUseCase } from './application/use-cases/get-active-alerts.use-case.js';
 import { ChatWithAgentUseCase } from './application/use-cases/chat-with-agent.use-case.js';
+import { AgentQueryService } from './application/services/agent-query.service.js';
+import { ZoneEnrichmentService } from './application/services/zone-enrichment.service.js';
 import type { TelemetryRawMessage } from './application/ports/index.js';
 import { dedupDroppedTotal } from './presentation/http/routes.js';
 
@@ -43,7 +47,7 @@ export function buildContainer(config: AppConfig) {
   });
 
   const pool = createPool(config.databaseUrl, logger);
-  const circuitBreaker = new CircuitBreakerService();
+  const circuitBreaker = new OpossumAdapter();
   const metricsRegistry = new Registry();
   metricsRegistry.registerMetric(dedupDroppedTotal);
 
@@ -65,6 +69,10 @@ export function buildContainer(config: AppConfig) {
     vehicleRepo: asClass(TimescaleVehicleRepository).singleton(),
     telemetryRepo: asClass(TimescaleTelemetryRepository).singleton(),
     alertRepo: asClass(TimescaleAlertRepository).singleton(),
+    zoneRepo: asClass(TimescaleCriticalZoneRepository).singleton(),
+    stoppedSessionRepo: asClass(TimescaleStoppedSessionRepository).singleton(),
+    agentQuery: asClass(AgentQueryService).singleton(),
+    zoneEnrichment: asClass(ZoneEnrichmentService).singleton(),
     agentService: asClass(LangChainAgentAdapter).singleton(),
     ingestTelemetry: asClass(IngestTelemetryUseCase).singleton(),
     processTelemetry: asClass(ProcessTelemetryUseCase).singleton(),

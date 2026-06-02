@@ -5,7 +5,7 @@ import type { IngestTelemetryUseCase } from '../../application/use-cases/ingest-
 import type { ListVehiclesUseCase } from '../../application/use-cases/list-vehicles.use-case.js';
 import type { GetActiveAlertsUseCase } from '../../application/use-cases/get-active-alerts.use-case.js';
 import type { ChatWithAgentUseCase } from '../../application/use-cases/chat-with-agent.use-case.js';
-import type { CircuitBreakerService } from '../../infrastructure/circuit-breaker/circuit-breaker.service.js';
+import type { CircuitBreakerService } from '../../infrastructure/circuit-breaker/opossum.adapter.js';
 import { randomUUID } from 'node:crypto';
 import { Counter, Registry, collectDefaultMetrics } from 'prom-client';
 

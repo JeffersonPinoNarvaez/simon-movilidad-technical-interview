@@ -1,8 +1,10 @@
 import { Kafka, Producer, Consumer, logLevel } from 'kafkajs';
 import type { IMessageBroker } from '../../application/ports/index.js';
 import type { Logger } from 'pino';
-import type { CircuitBreakerService } from '../circuit-breaker/circuit-breaker.service.js';
-import { CircuitBreakerService as CBService } from '../circuit-breaker/circuit-breaker.service.js';
+import {
+  CB_SERVICE_BOUNDARIES,
+  OpossumAdapter,
+} from '../circuit-breaker/opossum.adapter.js';
 import { Counter } from 'prom-client';
 
 const kafkaProduceTotal = new Counter({
@@ -21,7 +23,7 @@ export class KafkaAdapter implements IMessageBroker {
   constructor(
     private readonly brokers: string[],
     private readonly logger: Logger,
-    private readonly circuitBreaker: CircuitBreakerService,
+    private readonly circuitBreaker: OpossumAdapter,
   ) {
     this.kafka = new Kafka({
       clientId: 'fleet-portal-api',
@@ -35,7 +37,7 @@ export class KafkaAdapter implements IMessageBroker {
     await this.producer.connect();
 
     this.produceFn = this.circuitBreaker.wrap(
-      'kafka-produce',
+      CB_SERVICE_BOUNDARIES.INGEST_TO_BROKER,
       async (topic: string, message: Record<string, unknown>) => {
         await this.producer!.send({
           topic,
@@ -43,7 +45,7 @@ export class KafkaAdapter implements IMessageBroker {
         });
         kafkaProduceTotal.inc({ topic, status: 'success' });
       },
-      CBService.kafkaOptions(),
+      OpossumAdapter.kafkaOptions(),
     );
 
     this.logger.info('Kafka producer connected');
