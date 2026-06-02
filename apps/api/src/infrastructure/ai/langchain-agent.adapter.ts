@@ -1,17 +1,23 @@
 import { ChatOpenAI } from '@langchain/openai';
-import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages';
-import pg from 'pg';
+import { HumanMessage, AIMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import type { IAgentService } from '../../application/ports/index.js';
-import { CircuitBreakerService } from '../circuit-breaker/circuit-breaker.service.js';
+import type { IAgentQueryPort } from '@fleet-portal/domain';
+import {
+  OpossumAdapter,
+  CB_SERVICE_BOUNDARIES,
+} from '../circuit-breaker/opossum.adapter.js';
+import { createAgentTools } from './agent-tools.factory.js';
 import type { Logger } from 'pino';
 
 const DEFAULT_MODEL = 'gpt-4o-mini';
 const MEMORY_WINDOW = 10;
+const MAX_TOOL_ITERATIONS = 5;
 
 const SYSTEM_PROMPT = `You are FleetPortal AI, an assistant for fleet monitoring operators in Colombia.
-Answer questions about vehicle locations, speeds, alerts, and fleet status using the data provided.
+Use the available tools to answer questions about vehicle locations, speeds, alerts, stopped vehicles, and critical zones.
+For questions like "vehicles stopped more than 20 minutes in critical zones", use query_vehicle_status with filter in_critical_zone.
 Be factual, concise, and respond in the same language as the user.
-If you don't have enough data, say so clearly.`;
+If tools return no data, say so clearly.`;
 
 interface SessionMemory {
   messages: Array<{ role: 'human' | 'ai'; content: string }>;
@@ -24,16 +30,16 @@ export class LangChainAgentAdapter implements IAgentService {
   constructor(
     private readonly apiKey: string,
     private readonly modelName: string,
-    private readonly pool: pg.Pool,
-    private readonly circuitBreaker: CircuitBreakerService,
+    private readonly agentQuery: IAgentQueryPort,
+    private readonly circuitBreaker: OpossumAdapter,
     private readonly logger: Logger,
   ) {}
 
   init(): void {
     this.chatFn = this.circuitBreaker.wrap(
-      'ai-agent',
+      CB_SERVICE_BOUNDARIES.AGENT_TO_LLM,
       (message: string, sessionId: string) => this.executeChat(message, sessionId),
-      CircuitBreakerService.aiOptions(),
+      OpossumAdapter.aiOptions(),
     );
   }
 
@@ -43,31 +49,79 @@ export class LangChainAgentAdapter implements IAgentService {
   }
 
   private async executeChat(message: string, sessionId: string): Promise<string> {
-    const fleetContext = await this.buildFleetContext();
     const session = this.getSession(sessionId);
     session.messages.push({ role: 'human', content: message });
     this.trimMemory(session);
+
+    const tools = createAgentTools({
+      queryVehicleStatus: (filter) =>
+        this.circuitBreaker.wrap(
+          CB_SERVICE_BOUNDARIES.AGENT_TO_DATA,
+          () => this.agentQuery.queryVehicleStatus(filter),
+          OpossumAdapter.dbOptions(),
+        )(),
+      queryTelemetryHistory: (vehicleId, hoursBack) =>
+        this.circuitBreaker.wrap(
+          CB_SERVICE_BOUNDARIES.AGENT_TO_DATA,
+          () => this.agentQuery.queryTelemetryHistory(vehicleId, hoursBack),
+          OpossumAdapter.dbOptions(),
+        )(),
+      getActiveAlerts: (type) =>
+        this.circuitBreaker.wrap(
+          CB_SERVICE_BOUNDARIES.AGENT_TO_DATA,
+          () => this.agentQuery.getActiveAlerts(type),
+          OpossumAdapter.dbOptions(),
+        )(),
+    });
 
     const model = new ChatOpenAI({
       apiKey: this.apiKey,
       model: this.modelName || DEFAULT_MODEL,
       temperature: 0,
-    });
+    }).bindTools(tools);
 
     const history = session.messages.slice(0, -1).map((m) =>
       m.role === 'human' ? new HumanMessage(m.content) : new AIMessage(m.content),
     );
 
-    const response = await model.invoke([
-      new SystemMessage(`${SYSTEM_PROMPT}\n\nCurrent fleet data:\n${fleetContext}`),
+    let messages = [
+      new SystemMessage(SYSTEM_PROMPT),
       ...history,
       new HumanMessage(message),
-    ]);
+    ];
 
-    const reply =
-      typeof response.content === 'string'
-        ? response.content
-        : JSON.stringify(response.content);
+    let reply = '';
+    for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+      const response = await model.invoke(messages);
+      const toolCalls = response.tool_calls ?? [];
+
+      if (toolCalls.length === 0) {
+        reply =
+          typeof response.content === 'string'
+            ? response.content
+            : JSON.stringify(response.content);
+        break;
+      }
+
+      messages = [...messages, response];
+
+      for (const toolCall of toolCalls) {
+        const tool = tools.find((t) => t.name === toolCall.name);
+        const output = tool
+          ? await tool.invoke(toolCall.args as Record<string, unknown>)
+          : `Tool ${toolCall.name} not found`;
+        messages.push(
+          new ToolMessage({
+            content: typeof output === 'string' ? output : JSON.stringify(output),
+            tool_call_id: toolCall.id ?? toolCall.name,
+          }),
+        );
+      }
+    }
+
+    if (!reply) {
+      reply = 'No pude completar la consulta con las herramientas disponibles.';
+    }
 
     session.messages.push({ role: 'ai', content: reply });
     return reply;
@@ -83,32 +137,6 @@ export class LangChainAgentAdapter implements IAgentService {
   private trimMemory(session: SessionMemory): void {
     if (session.messages.length > MEMORY_WINDOW * 2) {
       session.messages = session.messages.slice(-MEMORY_WINDOW * 2);
-    }
-  }
-
-  private async buildFleetContext(): Promise<string> {
-    try {
-      const [vehicles, alerts] = await Promise.all([
-        this.pool.query(`
-          SELECT v.plate, v.name, v.status, s.lat, s.lng, s.speed_kmh, s.last_update
-          FROM vehicles v
-          LEFT JOIN vehicle_current_state s ON v.id = s.vehicle_id
-        `),
-        this.pool.query(
-          `SELECT a.type, a.message, a.severity, v.plate
-           FROM alerts a JOIN vehicles v ON a.vehicle_id = v.id
-           WHERE a.active = TRUE LIMIT 20`,
-        ),
-      ]);
-
-      return JSON.stringify(
-        { vehicles: vehicles.rows, activeAlerts: alerts.rows },
-        null,
-        2,
-      );
-    } catch (err) {
-      this.logger.warn({ err }, 'Failed to build fleet context for agent');
-      return 'Fleet data temporarily unavailable.';
     }
   }
 }
