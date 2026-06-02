@@ -50,6 +50,30 @@ ORDER BY device_id, time DESC;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_vehicle_current_state_device ON vehicle_current_state (device_id);
 CREATE INDEX IF NOT EXISTS idx_vehicle_current_state_vehicle ON vehicle_current_state (vehicle_id);
 
+CREATE TABLE IF NOT EXISTS critical_zones (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name        VARCHAR(100) NOT NULL,
+    lat_min     DOUBLE PRECISION NOT NULL,
+    lat_max     DOUBLE PRECISION NOT NULL,
+    lng_min     DOUBLE PRECISION NOT NULL,
+    lng_max     DOUBLE PRECISION NOT NULL,
+    severity    VARCHAR(20) DEFAULT 'critical'
+);
+
+CREATE TABLE IF NOT EXISTS vehicle_stopped_sessions (
+    vehicle_id    UUID PRIMARY KEY REFERENCES vehicles(id),
+    zone_id       UUID REFERENCES critical_zones(id),
+    stopped_since TIMESTAMPTZ NOT NULL,
+    last_lat      DOUBLE PRECISION NOT NULL,
+    last_lng      DOUBLE PRECISION NOT NULL
+);
+
+INSERT INTO critical_zones (id, name, lat_min, lat_max, lng_min, lng_max, severity) VALUES
+    ('d0000000-0000-4000-8000-000000000001', 'Bogotá Centro', 4.55, 4.68, -74.12, -74.05, 'critical'),
+    ('d0000000-0000-4000-8000-000000000002', 'Zona Portuaria Cartagena', 10.35, 10.45, -75.55, -75.48, 'critical'),
+    ('d0000000-0000-4000-8000-000000000003', 'Medellín Industrial', 6.20, 6.28, -75.62, -75.55, 'critical')
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO vehicles (id, plate, name, driver_name, status) VALUES
     ('a0000000-0000-4000-8000-000000000001', 'ABC-123', 'Camión Norte 1', 'Juan Pérez', 'offline'),
     ('a0000000-0000-4000-8000-000000000002', 'DEF-456', 'Van Sur 2', 'María Gómez', 'offline'),
