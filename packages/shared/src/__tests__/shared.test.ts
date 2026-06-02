@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { telemetryIngestSchema, DEDUP_BUCKET_MS } from '../index.js';
+import { telemetryIngestSchema, DEDUP_BUCKET_MS, STOPPED_THRESHOLD_MINUTES, CRITICAL_ZONE_STOPPED_MINUTES } from '../index.js';
 
 describe('telemetryIngestSchema', () => {
   it('validates correct payload', () => {
@@ -30,5 +30,10 @@ describe('telemetryIngestSchema', () => {
 describe('constants', () => {
   it('dedup bucket is 5 seconds', () => {
     expect(DEDUP_BUCKET_MS).toBe(5000);
+  });
+
+  it('stopped threshold is 20 minutes', () => {
+    expect(STOPPED_THRESHOLD_MINUTES).toBe(20);
+    expect(CRITICAL_ZONE_STOPPED_MINUTES).toBe(20);
   });
 });

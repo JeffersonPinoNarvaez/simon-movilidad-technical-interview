@@ -4,4 +4,5 @@ export * from './entities/telemetry-event.js';
 export * from './entities/alert.js';
 export * from './value-objects/ids.js';
 export * from './value-objects/coordinates.js';
+export * from './value-objects/critical-zone.js';
 export * from './repositories/index.js';

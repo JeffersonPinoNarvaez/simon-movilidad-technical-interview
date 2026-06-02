@@ -5,7 +5,9 @@ export const DEDUP_BUCKET_MS = 5000;
 export const TELEMETRY_TOPIC = 'telemetry.raw';
 export const KAFKA_CONSUMER_GROUP = 'telemetry-processors';
 export const SPEED_LIMIT_KMH = 80;
-export const STOPPED_THRESHOLD_MINUTES = 5;
+export const STOPPED_THRESHOLD_MINUTES = 20;
+export const CRITICAL_ZONE_STOPPED_MINUTES = 20;
+export const STOPPED_SPEED_KMH = 5;
 export const FUEL_LOW_THRESHOLD = 15;
 
 export const telemetryIngestSchema = z.object({

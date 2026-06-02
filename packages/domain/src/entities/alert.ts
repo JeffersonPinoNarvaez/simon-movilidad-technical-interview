@@ -1,6 +1,6 @@
 import { VehicleId } from '../value-objects/ids.js';
 
-export type AlertType = 'stopped' | 'speeding' | 'fuel' | 'offline';
+export type AlertType = 'stopped' | 'speeding' | 'fuel' | 'offline' | 'critical_zone';
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 
 export interface AlertProps {
