@@ -13,7 +13,8 @@
           "locationAlwaysAndWhenInUsePermission": "FleetPortal necesita tu ubicación para enviar telemetría.",
           "isAndroidBackgroundLocationEnabled": true
         }
-      ]
+      ],
+      "expo-router"
     ],
     "extra": {
       "eas": {
