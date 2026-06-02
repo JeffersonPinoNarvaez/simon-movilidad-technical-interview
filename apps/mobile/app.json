@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "FleetPortal Mobile",
+    "slug": "fleetportal-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "fleetportal",
+    "platforms": ["ios", "android"],
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "FleetPortal necesita tu ubicación para enviar telemetría.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "fleetportal-mobile-stub"
+      }
+    }
+  }
+}

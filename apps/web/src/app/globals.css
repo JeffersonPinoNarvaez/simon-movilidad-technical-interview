@@ -1,0 +1,24 @@
+@import 'leaflet/dist/leaflet.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 222 47% 6%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 9%;
+  --primary: 142 76% 36%;
+  --muted: 217 33% 17%;
+  --border: 217 33% 20%;
+}
+
+body {
+  @apply bg-[hsl(var(--background))] text-[hsl(var(--foreground))] antialiased;
+}
+
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  border-radius: 0.75rem;
+}

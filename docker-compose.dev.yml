@@ -1,0 +1,21 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api.dev
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./packages:/app/packages
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web.dev
+    volumes:
+      - ./apps/web:/app/apps/web
+      - ./packages:/app/packages
+    environment:
+      NODE_ENV: development
