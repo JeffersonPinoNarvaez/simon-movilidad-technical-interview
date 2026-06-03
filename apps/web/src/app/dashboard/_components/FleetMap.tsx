@@ -2,19 +2,10 @@
 
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { useEffect } from 'react';
+import { useEffect, useRef, memo } from 'react';
 import { useFleetStore } from '@/lib/store/fleet-store';
 
 const COLOMBIA_CENTER: [number, number] = [4.6097, -74.0817];
-
-function createIcon(color: string) {
-  return L.divIcon({
-    className: 'custom-marker',
-    html: `<div style="background:${color};width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
-  });
-}
 
 const STATUS_COLORS: Record<string, string> = {
   active: '#22c55e',
@@ -23,39 +14,58 @@ const STATUS_COLORS: Record<string, string> = {
   offline: '#64748b',
 };
 
+const MARKER_ICONS: Record<string, L.DivIcon> = Object.fromEntries(
+  Object.entries(STATUS_COLORS).map(([status, color]) => [
+    status,
+    L.divIcon({
+      className: 'custom-marker',
+      html: `<div style="background:${color};width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    }),
+  ]),
+);
+
+function getMarkerIcon(status: string): L.DivIcon {
+  return MARKER_ICONS[status] ?? MARKER_ICONS.offline;
+}
+
 function MapPanController() {
   const map = useMap();
   const selectedId = useFleetStore((s) => s.selectedVehicleId);
-  const vehicles = useFleetStore((s) => s.vehicles);
+  const lat = useFleetStore((s) =>
+    s.selectedVehicleId ? s.vehicles[s.selectedVehicleId]?.lat : null,
+  );
+  const lng = useFleetStore((s) =>
+    s.selectedVehicleId ? s.vehicles[s.selectedVehicleId]?.lng : null,
+  );
+  const lastPanRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!selectedId) return;
-    const vehicle = vehicles[selectedId];
-    if (vehicle?.lat != null && vehicle?.lng != null) {
-      map.panTo([vehicle.lat, vehicle.lng], { animate: true, duration: 0.5 });
-    }
-  }, [selectedId, vehicles, map]);
+    if (!selectedId || lat == null || lng == null) return;
+
+    const panKey = `${selectedId}:${lat.toFixed(5)}:${lng.toFixed(5)}`;
+    if (lastPanRef.current === panKey) return;
+    lastPanRef.current = panKey;
+
+    map.panTo([lat, lng], { animate: true, duration: 0.5 });
+  }, [selectedId, lat, lng, map]);
 
   return null;
 }
 
-export function FleetMap() {
-  const vehicles = useFleetStore((s) => Object.values(s.vehicles));
+const VehicleMarkers = memo(function VehicleMarkers() {
+  const vehicles = useFleetStore((s) => s.vehicles);
 
   return (
-    <MapContainer center={COLOMBIA_CENTER} zoom={6} className="h-full w-full">
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <MapPanController />
-      {vehicles
+    <>
+      {Object.values(vehicles)
         .filter((v) => v.lat != null && v.lng != null)
         .map((v) => (
           <Marker
             key={v.id}
             position={[v.lat!, v.lng!]}
-            icon={createIcon(STATUS_COLORS[v.status] ?? STATUS_COLORS.offline)}
+            icon={getMarkerIcon(v.status)}
           >
             <Popup>
               <strong>{v.plate}</strong>
@@ -72,6 +82,24 @@ export function FleetMap() {
             </Popup>
           </Marker>
         ))}
+    </>
+  );
+});
+
+export function FleetMap() {
+  return (
+    <MapContainer
+      center={COLOMBIA_CENTER}
+      zoom={6}
+      className="h-full w-full"
+      scrollWheelZoom
+    >
+      <TileLayer
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      <MapPanController />
+      <VehicleMarkers />
     </MapContainer>
   );
 }

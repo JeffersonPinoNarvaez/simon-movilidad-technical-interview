@@ -45,11 +45,6 @@ interface AlertsResponse {
 }
 
 export default function DashboardPage() {
-  const setVehicles = useFleetStore((s) => s.setVehicles);
-  const setAlerts = useFleetStore((s) => s.setAlerts);
-  const updateVehicle = useFleetStore((s) => s.updateVehicle);
-  const addAlert = useFleetStore((s) => s.addAlert);
-  const setWsConnected = useFleetStore((s) => s.setWsConnected);
   const wsConnected = useFleetStore((s) => s.wsConnected);
   const vehicleCount = useFleetStore((s) => Object.keys(s.vehicles).length);
   const alertCount = useFleetStore((s) => s.alerts.length);
@@ -57,7 +52,7 @@ export default function DashboardPage() {
   useEffect(() => {
     apiFetch<VehicleResponse>('/vehicles')
       .then((res) => {
-        setVehicles(
+        useFleetStore.getState().setVehicles(
           res.data.map((v) => ({
             id: v.id,
             plate: v.plate,
@@ -75,7 +70,7 @@ export default function DashboardPage() {
 
     apiFetch<AlertsResponse>('/alerts')
       .then((res) => {
-        setAlerts(
+        useFleetStore.getState().setAlerts(
           res.data.map((a) => ({
             id: a.id,
             vehicleId: a.vehicleId,
@@ -87,22 +82,24 @@ export default function DashboardPage() {
         );
       })
       .catch(() => useFleetStore.getState().setLoadingAlerts(false));
-  }, [setVehicles, setAlerts]);
+  }, []);
 
   useEffect(() => {
-    const socket = getSocket(setWsConnected);
-
-    socket.on('vehicle:update', (payload: VehicleUpdateEvent) => {
-      updateVehicle(payload);
+    const socket = getSocket((connected) => {
+      useFleetStore.getState().setWsConnected(connected);
     });
 
-    socket.on('alert:new', (payload: AlertNewEvent) => {
-      addAlert(payload);
+    const onVehicleUpdate = (payload: VehicleUpdateEvent) => {
+      useFleetStore.getState().updateVehicle(payload);
+    };
+
+    const onAlertNew = (payload: AlertNewEvent) => {
+      useFleetStore.getState().addAlert(payload);
       pushAlertToast(payload);
-    });
+    };
 
-    socket.on('vehicle:offline', ({ vehicleId }: { vehicleId: string }) => {
-      updateVehicle({
+    const onVehicleOffline = ({ vehicleId }: { vehicleId: string }) => {
+      useFleetStore.getState().updateVehicle({
         vehicleId,
         deviceId: '',
         lat: 0,
@@ -111,14 +108,18 @@ export default function DashboardPage() {
         status: 'offline',
         timestamp: new Date().toISOString(),
       });
-    });
+    };
+
+    socket.on('vehicle:update', onVehicleUpdate);
+    socket.on('alert:new', onAlertNew);
+    socket.on('vehicle:offline', onVehicleOffline);
 
     return () => {
-      socket.off('vehicle:update');
-      socket.off('alert:new');
-      socket.off('vehicle:offline');
+      socket.off('vehicle:update', onVehicleUpdate);
+      socket.off('alert:new', onAlertNew);
+      socket.off('vehicle:offline', onVehicleOffline);
     };
-  }, [updateVehicle, addAlert, setWsConnected]);
+  }, []);
 
   const headerBadge = useMemo(
     () => (wsConnected ? 'live' : 'warning') as 'live' | 'warning',

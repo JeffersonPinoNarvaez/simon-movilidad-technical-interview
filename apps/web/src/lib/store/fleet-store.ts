@@ -75,7 +75,8 @@ export const useFleetStore = create<FleetStore>((set) => ({
     })),
 
   setSelectedVehicle: (id) => set({ selectedVehicleId: id }),
-  setWsConnected: (connected) => set({ wsConnected: connected }),
+  setWsConnected: (connected) =>
+    set((state) => (state.wsConnected === connected ? state : { wsConnected: connected })),
   setLoadingVehicles: (loading) => set({ isLoadingVehicles: loading }),
   setLoadingAlerts: (loading) => set({ isLoadingAlerts: loading }),
 }));

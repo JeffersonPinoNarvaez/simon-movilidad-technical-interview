@@ -13,7 +13,8 @@ const STATUS: Record<string, { dot: string; label: string; ring: string }> = {
 };
 
 export function VehicleList() {
-  const vehicles = useFleetStore((s) => Object.values(s.vehicles));
+  const vehicleMap = useFleetStore((s) => s.vehicles);
+  const vehicles = Object.values(vehicleMap);
   const selectedId = useFleetStore((s) => s.selectedVehicleId);
   const isLoading = useFleetStore((s) => s.isLoadingVehicles);
   const setSelected = useFleetStore((s) => s.setSelectedVehicle);

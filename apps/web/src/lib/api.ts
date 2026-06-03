@@ -1,7 +1,15 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+/** Browser: Next.js Route Handler proxy at /api/*. Server: direct API origin. */
+function getApiBase(): string {
+  if (typeof window !== 'undefined') {
+    return '/api';
+  }
+  const origin = process.env.API_INTERNAL_URL ?? process.env.API_URL ?? 'http://localhost:3001';
+  return origin.replace(/\/$/, '');
+}
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  const res = await fetch(`${getApiBase()}${normalized}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -17,4 +25,4 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return res.json() as Promise<T>;
 }
 
-export { API_URL };
+export const API_URL = getApiBase();

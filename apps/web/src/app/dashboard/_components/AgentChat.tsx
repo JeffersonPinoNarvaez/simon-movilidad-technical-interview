@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Bot, Send, Sparkles } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { Spinner } from '@/components/ui/loading';
+import { ChatMarkdown } from '@/components/chat/ChatMarkdown';
 import { cn } from '@/lib/utils';
 
 interface ChatMessage {
@@ -111,7 +112,11 @@ export function AgentChat() {
                     : 'rounded-bl-md border border-white/10 bg-slate-800/80 text-slate-200',
                 )}
               >
-                {m.content}
+                {m.role === 'assistant' ? (
+                  <ChatMarkdown content={m.content} />
+                ) : (
+                  m.content
+                )}
               </div>
             </div>
           ))}
