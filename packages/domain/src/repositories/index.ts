@@ -1,7 +1,11 @@
 import { Vehicle } from '../entities/vehicle.js';
 import { TelemetryEvent } from '../entities/telemetry-event.js';
 import { Alert, AlertType } from '../entities/alert.js';
-import { VehicleId } from '../value-objects/ids.js';
+import { DeviceId, VehicleId } from '../value-objects/ids.js';
+
+export interface IDeviceRepository {
+  findById(id: DeviceId): Promise<{ id: string; vehicleId: string } | null>;
+}
 
 export interface ICriticalZoneRepository {
   findAll(): Promise<
@@ -53,6 +57,8 @@ export interface IVehicleRepository {
   findAll(): Promise<Vehicle[]>;
   findById(id: VehicleId): Promise<Vehicle | null>;
   updateStatus(id: VehicleId, status: string, lastSeen: Date): Promise<void>;
+  /** Sets status=offline for vehicles with last_seen older than threshold; returns affected IDs. */
+  markStaleOffline(inactivityMs: number): Promise<string[]>;
 }
 
 export interface ITelemetryRepository {

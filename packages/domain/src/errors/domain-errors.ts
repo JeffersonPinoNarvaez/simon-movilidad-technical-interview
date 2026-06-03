@@ -28,3 +28,10 @@ export class DuplicateEventError extends DomainError {
     this.name = 'DuplicateEventError';
   }
 }
+
+export class InvalidDeviceError extends ValidationError {
+  constructor(deviceId: string, vehicleId: string) {
+    super(`Device ${deviceId} is not registered for vehicle ${vehicleId}`);
+    this.name = 'InvalidDeviceError';
+  }
+}
