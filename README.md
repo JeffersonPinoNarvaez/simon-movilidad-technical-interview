@@ -115,7 +115,7 @@ curl -X POST http://localhost:3001/telemetry \
 
 | Script | Uso | Comportamiento |
 |--------|-----|----------------|
-| `infra/k6/smoke.js` | CI / verificación rápida (~30s) | Ramp ligero, umbrales p95 y tasa de error |
+| `infra/k6/smoke.js` | CI / verificación rápida (~30s) | Ramp ligero; acepta **202** (ingest) y **409** (dedup Redis) como éxito |
 | `infra/k6/fleet-chaos.js` | Caos completo (PDF §4E) | Ramp 50→200→500 vehículos; **~10%** peticiones duplicadas (mismo `event_id`); **~5%** payloads inválidos (422); **~85%** telemetría válida en bounding box Colombia |
 
 ```bash

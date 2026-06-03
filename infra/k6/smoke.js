@@ -3,6 +3,9 @@ import { check, sleep } from 'k6';
 
 const API_URL = __ENV.API_URL || 'http://localhost:3001';
 
+/** 409 = dedup window (expected under concurrent load); default k6 only counts 2xx as success */
+const telemetryExpected = http.expectedStatuses(202, 409);
+
 export const options = {
   vus: 5,
   duration: '30s',
@@ -41,7 +44,7 @@ export default function () {
       lng: -74.08 + Math.random() * 0.05,
       speed_kmh: 30 + Math.floor(Math.random() * 40),
     }),
-    { headers: { 'Content-Type': 'application/json' } },
+    { headers: { 'Content-Type': 'application/json' }, responseCallback: telemetryExpected },
   );
 
   check(res, {

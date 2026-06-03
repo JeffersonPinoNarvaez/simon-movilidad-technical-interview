@@ -18,6 +18,9 @@ export const options = {
 
 const API_URL = __ENV.API_URL || 'http://localhost:3001';
 
+const telemetryAccepted = http.expectedStatuses(202, 409);
+const telemetryInvalid = http.expectedStatuses(422);
+
 const VEHICLE_IDS = [
   'a0000000-0000-4000-8000-000000000001',
   'a0000000-0000-4000-8000-000000000002',
@@ -62,9 +65,11 @@ export default function () {
 
     http.post(`${API_URL}/telemetry`, payload, {
       headers: { 'Content-Type': 'application/json' },
+      responseCallback: telemetryAccepted,
     });
     const dup = http.post(`${API_URL}/telemetry`, payload, {
       headers: { 'Content-Type': 'application/json' },
+      responseCallback: telemetryAccepted,
     });
     check(dup, { 'duplicate rejected or accepted': (r) => r.status === 409 || r.status === 202 });
   } else if (roll < 0.15) {
@@ -78,7 +83,7 @@ export default function () {
         lat: 999,
         lng: -74,
       }),
-      { headers: { 'Content-Type': 'application/json' } },
+      { headers: { 'Content-Type': 'application/json' }, responseCallback: telemetryInvalid },
     );
     check(res, { 'invalid payload rejected': (r) => r.status === 422 });
   } else {
@@ -95,7 +100,7 @@ export default function () {
         heading: randomIntBetween(0, 360),
         fuel_level: randomIntBetween(10, 100),
       }),
-      { headers: { 'Content-Type': 'application/json' } },
+      { headers: { 'Content-Type': 'application/json' }, responseCallback: http.expectedStatuses(202) },
     );
     check(res, {
       'telemetry accepted': (r) => r.status === 202,
