@@ -2,12 +2,31 @@
 
 Portal corporativo de monitoreo de flotas con pipeline de telemetría de alta concurrencia, agente IA conversacional, app móvil offline-first y observabilidad completa.
 
+## Entregables (prueba técnica)
+
+| Entregable | Ubicación |
+|------------|-----------|
+| Repositorio Git (commits convencionales) | [github.com/JeffersonPinoNarvaez/simon-movilidad-technical-interview](https://github.com/JeffersonPinoNarvaez/simon-movilidad-technical-interview) |
+| Documentación + IaC | Este README + `infra/terraform/` |
+| Auditoría de IA | Sección [Auditoría de IA](#auditoría-de-ia) (2 casos) |
+| Video de sustentación (5–10 min, YouTube no listado) | [youtu.be/8fzZKLWr3uQ](https://youtu.be/8fzZKLWr3uQ) |
+
 ## Arquitectura
 
 ```
 Mobile/Device → POST /telemetry → Redis dedup → Kafka (telemetry.raw)
   → Consumer → Enrichment → TimescaleDB → Redis pub/sub → WebSocket → Dashboard
 ```
+
+### Decisiones arquitectónicas
+
+| Componente | Elección | Justificación |
+|------------|----------|---------------|
+| Bus de eventos | Redpanda (Kafka API) | Desacopla ingest HTTP del procesamiento; permite escalar consumidores (`telemetry-processors`) y replay ante picos (objetivo k6: 500 vehículos). |
+| Series de tiempo | TimescaleDB | Hypertables por `time` + chunks horarios; índices `(device_id, time DESC)` para consultas de flota en alta frecuencia. Postgres evita operar Cassandra/Druid en local. |
+| Cache / dedup | Redis | Ventana deslizante 5s (`dedup:{device_id}:{bucket}`) y pub/sub `vehicle:{id}:updates` hacia WebSocket sin bloquear el consumer. |
+| Resiliencia | Opossum (circuit breakers) | Fronteras Kafka produce, TimescaleDB write y agente IA; estado expuesto en `GET /health/circuit-breakers`. |
+| Agente IA | LangChain.js + OpenAI | Tools con filtros whitelist; temperatura 0 para respuestas reproducibles en demo. |
 
 ### Stack
 
@@ -22,6 +41,19 @@ Mobile/Device → POST /telemetry → Redis dedup → Kafka (telemetry.raw)
 | Chaos | k6 |
 | IaC | Terraform (stubs AWS) |
 
+### Entorno agéntico
+
+El desarrollo se orquestó con IDE agéntico (Cursor). Las reglas del proyecto están en [`.cursorrules`](./.cursorrules): stack no negociable, capas Clean Architecture, pipeline de telemetría, deduplicación Redis, circuit breakers y formato de auditoría IA. Ese archivo guió a la IA hacia DDD/SOLID y se usó para auditar/refactorizar sugerencias deficientes (ver [Auditoría de IA](#auditoría-de-ia)).
+
+### Gestión de recursos locales
+
+Si no levantas todo el stack a la vez (PDF §5):
+
+- **Mínimo para API + dashboard:** `timescaledb`, `redis`, `redpanda`, `redpanda-init`, luego `api` y `web` (o `npm run dev` en apps).
+- **Sin Docker en apps:** Infra en Compose; API/Web con `npm run dev` contra `localhost`.
+- **Sin k6 local:** El job `k6-smoke` en GitHub Actions valida ingest bajo carga en CI.
+- **Terraform:** Stubs opcionales; el MVP corre 100% con Docker Compose. No se requiere cuenta AWS para evaluar el código.
+
 ## Inicio rápido
 
 ### Prerrequisitos
@@ -29,6 +61,7 @@ Mobile/Device → POST /telemetry → Redis dedup → Kafka (telemetry.raw)
 - Docker & Docker Compose
 - Node.js 20+
 - (Opcional) k6 para pruebas de carga
+- (Opcional) Terraform ≥ 1.5 solo si revisas IaC AWS
 
 ### 1. Configurar entorno
 
@@ -80,9 +113,14 @@ curl -X POST http://localhost:3001/telemetry \
 
 ### 5. Prueba de carga (k6)
 
+| Script | Uso | Comportamiento |
+|--------|-----|----------------|
+| `infra/k6/smoke.js` | CI / verificación rápida (~30s) | Ramp ligero, umbrales p95 y tasa de error |
+| `infra/k6/fleet-chaos.js` | Caos completo (PDF §4E) | Ramp 50→200→500 vehículos; **~10%** peticiones duplicadas (mismo `event_id`); **~5%** payloads inválidos (422); **~85%** telemetría válida en bounding box Colombia |
+
 ```bash
-k6 run -e API_URL=http://localhost:3001 infra/k6/smoke.js      # smoke (~30s)
-k6 run -e API_URL=http://localhost:3001 infra/k6/fleet-chaos.js # caos completo
+k6 run -e API_URL=http://localhost:3001 infra/k6/smoke.js
+k6 run -e API_URL=http://localhost:3001 infra/k6/fleet-chaos.js
 ```
 
 ### 6. Reset demo (video vs PDF con datos)
@@ -92,6 +130,27 @@ k6 run -e API_URL=http://localhost:3001 infra/k6/fleet-chaos.js # caos completo
 ./scripts/reset-demo.sh --soft --seed   # + telemetría/alertas de muestra PDF
 ./scripts/seed-sample-telemetry.sh      # solo re-aplica seed
 ```
+
+## Infraestructura como código (Terraform)
+
+Stubs AWS en `infra/terraform/main.tf`: VPC, subnets públicas, cluster ECS y RDS Postgres (placeholder para TimescaleDB en producción).
+
+**Requisitos:** Terraform ≥ 1.5, credenciales AWS configuradas (`aws configure` o variables de entorno).
+
+```bash
+cd infra/terraform
+terraform init
+terraform plan \
+  -var="aws_region=us-east-1" \
+  -var="environment=staging" \
+  -var="project_name=fleetportal"
+# Solo si tienes cuenta AWS y quieres materializar stubs:
+# terraform apply
+```
+
+**Outputs:** `vpc_id`, `ecs_cluster_arn`, `rds_endpoint`.
+
+> En evaluación local basta Docker Compose. Terraform demuestra diseño cloud (Control Tower / multi-cuenta del PDF) sin ser obligatorio para levantar el MVP.
 
 ## Estructura del monorepo
 
@@ -108,6 +167,7 @@ fleet-portal/
 │   ├── docker/       # Dockerfiles + init SQL
 │   ├── terraform/    # IaC stubs AWS
 │   └── k6/           # Scripts de carga
+├── .cursorrules      # Reglas agénticas del proyecto
 └── docker-compose.yml
 ```
 
@@ -118,10 +178,19 @@ fleet-portal/
 | GET | `/health` | Health check |
 | GET | `/health/circuit-breakers` | Estado de circuit breakers por frontera de servicio |
 | GET | `/metrics` | Métricas Prometheus |
-| POST | `/telemetry` | Ingesta de telemetría |
+| POST | `/telemetry` | Ingesta de telemetría (202 + pipeline Kafka) |
 | GET | `/vehicles` | Lista de vehículos |
 | GET | `/alerts` | Alertas activas |
 | POST | `/agent/chat` | Chat con agente IA |
+
+### Ejemplos de consultas al agente IA
+
+Tras configurar `OPENAI_API_KEY` en `.env` y abrir el chat en `/dashboard`:
+
+- «¿Qué vehículos llevan detenidos más de 20 minutos en zonas críticas?»
+- «¿Cuántos vehículos están activos ahora?»
+- «Muéstrame el historial de telemetría del vehículo ABC-123 en la última hora»
+- «¿Hay alertas de exceso de velocidad o combustible bajo?»
 
 ## Auditoría de IA
 
@@ -170,7 +239,8 @@ Abrir http://localhost:3000/dashboard tras levantar la API. El dashboard usa **p
 | Proxy Next `/api` | ✅ `apps/web/src/app/api/[...path]/route.ts` |
 | Cola offline (WatermelonDB) | ✅ Puerto `IOfflineQueueRepository` + adapter SQLite |
 | Tests web / mobile | ✅ Vitest + Playwright (`apps/web`, `apps/mobile`) |
-| k6 en CI | ✅ Job `k6-smoke` en `.github/workflows/ci.yml` |
+| k6 en CI (10% dup / 5% error en chaos) | ✅ `fleet-chaos.js` + job `k6-smoke` en `.github/workflows/ci.yml` |
+| Terraform + Docker Compose | ✅ `infra/terraform/` + `docker compose up -d` |
 
 ## Mobile + CI/CD
 
@@ -193,6 +263,17 @@ cd apps/mobile && bundle install && bundle exec fastlane ios beta
 npm test                              # domain, shared, api, web, mobile
 npm run test:e2e --workspace=@fleet-portal/web   # Playwright dashboard (dev server)
 ```
+
+## Sustentación virtual (guía para el video)
+
+Contenido sugerido para el video de 5–10 min (YouTube no listado):
+
+1. **Arquitectura (2–3 min):** diagrama del pipeline, TimescaleDB + Kafka + circuit breakers.
+2. **Demo funcional (2–3 min):** dashboard en vivo, alerta por WebSocket, chat del agente, app móvil o `curl` de telemetría.
+3. **Aceleración agéntica (2 min):** mostrar `.cursorrules`, un prompt que guió la IA y un caso de la [Auditoría de IA](#auditoría-de-ia).
+4. **Caos opcional (1 min):** `k6 run … fleet-chaos.js` o mencionar el job en CI.
+
+Video publicado: [https://youtu.be/8fzZKLWr3uQ](https://youtu.be/8fzZKLWr3uQ) (configurar visibilidad **No listado** en YouTube Studio si aún no lo está).
 
 ## Licencia
 
