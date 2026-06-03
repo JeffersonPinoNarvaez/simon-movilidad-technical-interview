@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { telemetryIngestSchema, DEDUP_BUCKET_MS, STOPPED_THRESHOLD_MINUTES, CRITICAL_ZONE_STOPPED_MINUTES } from '../index.js';
+import {
+  telemetryIngestSchema,
+  DEDUP_BUCKET_MS,
+  STOPPED_THRESHOLD_MINUTES,
+  CRITICAL_ZONE_STOPPED_MINUTES,
+  VEHICLE_OFFLINE_THRESHOLD_MS,
+  deviceIdForVehicle,
+} from '../index.js';
 
 describe('telemetryIngestSchema', () => {
   it('validates correct payload', () => {
@@ -35,5 +42,15 @@ describe('constants', () => {
   it('stopped threshold is 20 minutes', () => {
     expect(STOPPED_THRESHOLD_MINUTES).toBe(20);
     expect(CRITICAL_ZONE_STOPPED_MINUTES).toBe(20);
+  });
+
+  it('vehicle offline threshold is 2 minutes', () => {
+    expect(VEHICLE_OFFLINE_THRESHOLD_MS).toBe(120_000);
+  });
+
+  it('deviceIdForVehicle maps a000 prefix to c000', () => {
+    expect(deviceIdForVehicle('a0000000-0000-4000-8000-000000000001')).toBe(
+      'c0000000-0000-4000-8000-000000000001',
+    );
   });
 });

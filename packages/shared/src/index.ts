@@ -10,6 +10,14 @@ export const CRITICAL_ZONE_STOPPED_MINUTES = 20;
 export const STOPPED_SPEED_KMH = 5;
 export const FUEL_LOW_THRESHOLD = 15;
 export const MATERIALIZED_VIEW_REFRESH_MS = 30_000;
+/** Mark vehicles offline and emit WS event if no telemetry within this window. */
+export const VEHICLE_OFFLINE_THRESHOLD_MS = 120_000;
+export const VEHICLE_OFFLINE_CHECK_MS = 60_000;
+
+/** Maps vehicle UUID prefix a000… to paired device UUID c000… (seed + k6 + mobile). */
+export function deviceIdForVehicle(vehicleId: string): string {
+  return vehicleId.replace(/^a000/, 'c000');
+}
 
 export const telemetryIngestSchema = z.object({
   event_id: z.string().uuid(),
