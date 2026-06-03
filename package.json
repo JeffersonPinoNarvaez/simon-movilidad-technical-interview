@@ -19,5 +19,8 @@
   "packageManager": "npm@10.8.2",
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "react-native": "0.81.5"
   }
 }
