@@ -11,7 +11,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import NetInfo from '@react-native-community/netinfo';
 import { getPendingCount, flushPendingEvents } from '../services/StorageService';
-import { sendTelemetry, type TelemetryPayload } from '../services/SyncService';
+import { API_URL, sendTelemetry, type TelemetryPayload } from '../services/SyncService';
 import { useLocationStore } from '../store/useLocationStore';
 
 export function SyncScreen() {
@@ -61,6 +61,7 @@ export function SyncScreen() {
         <Text style={styles.eyebrow}>Offline-first</Text>
         <Text style={styles.title}>Sincronización</Text>
         <Text style={styles.subtitle}>Cola local SQLite · lotes de 50 eventos</Text>
+        <Text style={styles.apiHint}>API: {API_URL}</Text>
 
         <View style={styles.grid}>
           <View style={[styles.card, isOnline ? styles.cardOnline : styles.cardOffline]}>
@@ -124,7 +125,13 @@ const styles = StyleSheet.create({
     color: '#34d399',
   },
   title: { fontSize: 28, fontWeight: '700', color: '#f8fafc', marginTop: 4 },
-  subtitle: { fontSize: 14, color: '#64748b', marginBottom: 24, marginTop: 6 },
+  subtitle: { fontSize: 14, color: '#64748b', marginBottom: 8, marginTop: 6 },
+  apiHint: {
+    fontSize: 12,
+    color: '#94a3b8',
+    marginBottom: 20,
+    fontFamily: 'Menlo',
+  },
   grid: { flexDirection: 'row', gap: 12, marginBottom: 12 },
   card: {
     flex: 1,

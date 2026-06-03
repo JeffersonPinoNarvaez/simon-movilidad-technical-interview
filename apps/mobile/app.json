@@ -5,17 +5,40 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "fleetportal",
-    "platforms": ["ios", "android"],
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "ios": {
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "FleetPortal usa tu ubicación para mostrar tu posición en el mapa y enviar telemetría.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "FleetPortal necesita ubicación en segundo plano para seguir enviando telemetría mientras conduces.",
+        "NSLocationAlwaysUsageDescription": "FleetPortal necesita ubicación en segundo plano para seguir enviando telemetría mientras conduces."
+      }
+    },
+    "android": {
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION"
+      ]
+    },
     "plugins": [
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "FleetPortal necesita tu ubicación para enviar telemetría.",
+          "locationWhenInUsePermission": "FleetPortal usa tu ubicación para mostrar tu posición en el mapa y enviar telemetría.",
+          "locationAlwaysAndWhenInUsePermission": "FleetPortal necesita ubicación en segundo plano para seguir enviando telemetría mientras conduces.",
+          "isIosBackgroundLocationEnabled": false,
           "isAndroidBackgroundLocationEnabled": true
         }
       ],
-      "expo-router"
+      "expo-router",
+      "expo-sqlite"
     ],
+    "experiments": {
+      "autolinkingModuleResolution": true
+    },
     "extra": {
       "eas": {
         "projectId": "fleetportal-mobile-stub"

@@ -1,6 +1,13 @@
+import Constants from 'expo-constants';
 import * as Location from 'expo-location';
 import NetInfo from '@react-native-community/netinfo';
-import { sendTelemetry, GPS_INTERVAL_MS, type TelemetryPayload } from './SyncService';
+import { randomUUID } from '../utils/uuid';
+import {
+  sendTelemetry,
+  sanitizeTelemetryPayload,
+  GPS_INTERVAL_MS,
+  type TelemetryPayload,
+} from './SyncService';
 import { insertPendingEvent, flushPendingEvents, getPendingCount } from './StorageService';
 
 const DEFAULT_VEHICLE_ID = 'a0000000-0000-4000-8000-000000000001';
@@ -19,7 +26,12 @@ export class LocationService {
       throw new Error('Permiso de ubicación denegado');
     }
 
-    await Location.requestBackgroundPermissionsAsync();
+    // Expo Go uses its own Info.plist — background keys from app.json are not applied.
+    // Foreground tracking is enough for the demo; use a dev build for background GPS.
+    const isExpoGo = Constants.executionEnvironment === 'storeClient';
+    if (!isExpoGo) {
+      await Location.requestBackgroundPermissionsAsync();
+    }
 
     this.watchSubscription = await Location.watchPositionAsync(
       {
@@ -50,16 +62,22 @@ export class LocationService {
   }
 
   private async handleLocation(location: Location.LocationObject): Promise<void> {
-    const payload: TelemetryPayload = {
-      event_id: crypto.randomUUID(),
+    const { coords } = location;
+    const speedMs = coords.speed;
+    const payload = sanitizeTelemetryPayload({
+      event_id: randomUUID(),
       device_id: DEFAULT_DEVICE_ID,
       vehicle_id: DEFAULT_VEHICLE_ID,
       timestamp: new Date().toISOString(),
-      lat: location.coords.latitude,
-      lng: location.coords.longitude,
-      speed_kmh: location.coords.speed != null ? location.coords.speed * 3.6 : undefined,
-      heading: location.coords.heading ?? undefined,
-    };
+      lat: coords.latitude,
+      lng: coords.longitude,
+      speed_kmh:
+        speedMs != null && speedMs >= 0 ? speedMs * 3.6 : undefined,
+      heading:
+        coords.heading != null && coords.heading >= 0 && coords.heading <= 360
+          ? coords.heading
+          : undefined,
+    });
 
     const sent = await sendTelemetry(payload);
     if (!sent) {

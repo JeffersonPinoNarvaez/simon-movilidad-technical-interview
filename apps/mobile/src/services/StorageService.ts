@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import { randomUUID } from '../utils/uuid';
 
 const DB_NAME = 'fleetportal.db';
 const BATCH_SIZE = 50;
@@ -29,7 +30,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 
 export async function insertPendingEvent(payload: Record<string, unknown>): Promise<void> {
   const database = await getDatabase();
-  const id = crypto.randomUUID();
+  const id = randomUUID();
   await database.runAsync(
     'INSERT INTO pending_events (id, payload, created_at, retry_count) VALUES (?, ?, ?, 0)',
     [id, JSON.stringify(payload), new Date().toISOString()],

@@ -3,7 +3,8 @@
     "strict": true,
     "jsx": "react-native",
     "moduleResolution": "bundler",
-    "paths": { "@/*": ["./src/*"] }
+    "paths": { "@/*": ["./src/*"] },
+    "typeRoots": ["./node_modules/@types"]
   },
   "extends": "expo/tsconfig.base",
   "include": ["**/*.ts", "**/*.tsx"]
