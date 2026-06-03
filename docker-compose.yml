@@ -45,6 +45,7 @@ services:
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
       - ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./infra/docker/seed-sample-telemetry.sql:/docker-entrypoint-initdb.d/02-seed-sample.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fleet -d fleetportal"]
       interval: 5s
@@ -80,7 +81,7 @@ services:
     ports:
       - "3001:3001"
     env_file:
-      - .env.example
+      - .env
     environment:
       DATABASE_URL: postgresql://fleet:fleet_secret@timescaledb:5432/fleetportal
       REDIS_URL: redis://redis:6379
@@ -110,7 +111,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:3001
+      API_INTERNAL_URL: http://api:3001
       NEXT_PUBLIC_WS_URL: http://localhost:3001
     depends_on:
       api:

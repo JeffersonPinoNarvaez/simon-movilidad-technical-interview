@@ -7,6 +7,8 @@ RUN npm install --workspace=@fleet-portal/web --include-workspace-root
 COPY packages/shared/ packages/shared/
 COPY apps/web/ apps/web/
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV API_INTERNAL_URL=http://api:3001
+ENV NEXT_PUBLIC_WS_URL=http://localhost:3001
 RUN npm run build --workspace=@fleet-portal/shared && \
     npm run build --workspace=@fleet-portal/web
 

@@ -7,6 +7,7 @@ COPY apps/api/package.json apps/api/
 RUN npm install --workspace=@fleet-portal/api --include-workspace-root
 COPY packages/ packages/
 COPY apps/api/ apps/api/
+RUN rm -f packages/domain/tsconfig.tsbuildinfo packages/shared/tsconfig.tsbuildinfo
 RUN npm run build --workspace=@fleet-portal/domain && \
     npm run build --workspace=@fleet-portal/shared && \
     npm run build --workspace=@fleet-portal/api
