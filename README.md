@@ -17,7 +17,7 @@ Mobile/Device → POST /telemetry → Redis dedup → Kafka (telemetry.raw)
 | Broker | Redpanda (Kafka-compatible) |
 | DB | TimescaleDB + Redis |
 | Frontend | Next.js 14, Tailwind, react-leaflet, socket.io |
-| Mobile | React Native 0.76 + Expo (offline-first con SQLite) |
+| Mobile | React Native + Expo (offline-first; cola tipo WatermelonDB vía expo-sqlite) |
 | AI | LangChain.js + OpenAI |
 | Chaos | k6 |
 | IaC | Terraform (stubs AWS) |
@@ -81,7 +81,16 @@ curl -X POST http://localhost:3001/telemetry \
 ### 5. Prueba de carga (k6)
 
 ```bash
-k6 run -e API_URL=http://localhost:3001 infra/k6/fleet-chaos.js
+k6 run -e API_URL=http://localhost:3001 infra/k6/smoke.js      # smoke (~30s)
+k6 run -e API_URL=http://localhost:3001 infra/k6/fleet-chaos.js # caos completo
+```
+
+### 6. Reset demo (video vs PDF con datos)
+
+```bash
+./scripts/reset-demo.sh --soft          # limpio para grabar móvil
+./scripts/reset-demo.sh --soft --seed   # + telemetría/alertas de muestra PDF
+./scripts/seed-sample-telemetry.sh      # solo re-aplica seed
 ```
 
 ## Estructura del monorepo
@@ -148,7 +157,20 @@ El portal incluye:
 - **Agente IA** con sugerencias rápidas e indicador de escritura
 - **Banner de reconexión** con backoff exponencial cuando cae el socket
 
-Abrir http://localhost:3000/dashboard tras levantar la API y enviar telemetría de prueba.
+Abrir http://localhost:3000/dashboard tras levantar la API. El dashboard usa **proxy Next.js** (`/api/*` → API Fastify); WebSocket sigue en `:3001`.
+
+### Cumplimiento PDF (checklist)
+
+| Requisito | Estado |
+|-----------|--------|
+| Tabla `devices` + FK telemetría | ✅ `init-db.sql` + validación en ingest |
+| Seed telemetría/alertas | ✅ `02-seed-sample.sql` al crear DB; `./scripts/reset-demo.sh --soft --seed` |
+| Alertas speeding / fuel | ✅ `ProcessTelemetryUseCase` + tests |
+| WebSocket `vehicle:offline` | ✅ Scheduler + chequeo throttled en consumer Kafka |
+| Proxy Next `/api` | ✅ `apps/web/src/app/api/[...path]/route.ts` |
+| Cola offline (WatermelonDB) | ✅ Puerto `IOfflineQueueRepository` + adapter SQLite |
+| Tests web / mobile | ✅ Vitest + Playwright (`apps/web`, `apps/mobile`) |
+| k6 en CI | ✅ Job `k6-smoke` en `.github/workflows/ci.yml` |
 
 ## Mobile + CI/CD
 
@@ -159,7 +181,7 @@ cd apps/mobile && npm start
 - **DriverMapScreen**: mapa con tracking GPS y cola offline
 - **SyncScreen**: estado de red, pendientes SQLite y sync manual por lotes
 - **Fastlane** (`apps/mobile/fastlane/`): lanes `beta` para iOS/Android vía EAS Build
-- **GitHub Actions** (`mobile-ci.yml`): requiere secret `EXPO_TOKEN` para EAS en `main`
+- **GitHub Actions** (`ci.yml`): tests + k6 smoke + EAS en `main` (secret `EXPO_TOKEN`)
 
 ```bash
 cd apps/mobile && bundle install && bundle exec fastlane ios beta
@@ -168,7 +190,8 @@ cd apps/mobile && bundle install && bundle exec fastlane ios beta
 ## Tests
 
 ```bash
-npm test   # 25+ tests: unitarios, integración, scheduler MV y e2e (Fastify inject)
+npm test                              # domain, shared, api, web, mobile
+npm run test:e2e --workspace=@fleet-portal/web   # Playwright dashboard (dev server)
 ```
 
 ## Licencia
