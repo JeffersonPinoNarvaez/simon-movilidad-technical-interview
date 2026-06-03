@@ -251,7 +251,7 @@ cd apps/mobile && npm start
 - **DriverMapScreen**: mapa con tracking GPS y cola offline
 - **SyncScreen**: estado de red, pendientes SQLite y sync manual por lotes
 - **Fastlane** (`apps/mobile/fastlane/`): lanes `beta` para iOS/Android vía EAS Build
-- **GitHub Actions** (`ci.yml`): tests + k6 smoke + EAS en `main` (secret `EXPO_TOKEN`)
+- **GitHub Actions** (`ci.yml`): tests + k6 smoke en cada push/PR; EAS en `main` solo si configuras el secret `EXPO_TOKEN` (si no, el job se omite sin fallar)
 
 ```bash
 cd apps/mobile && bundle install && bundle exec fastlane ios beta
