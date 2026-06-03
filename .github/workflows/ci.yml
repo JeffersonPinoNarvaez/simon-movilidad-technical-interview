@@ -21,7 +21,11 @@ jobs:
         run: npm ci
 
       - name: Build shared packages
-        run: npm run build --workspace=@fleet-portal/domain --workspace=@fleet-portal/shared
+        run: |
+          npm run build --workspace=@fleet-portal/domain
+          npm run build --workspace=@fleet-portal/shared
+          test -f packages/domain/dist/index.d.ts
+          test -f packages/shared/dist/index.d.ts
 
       - name: Typecheck
         run: |

@@ -10,6 +10,7 @@ import { registerRoutes } from './presentation/http/routes.js';
 import type { SocketIoGateway } from './infrastructure/ws/socket-io.gateway.js';
 import { startMaterializedViewRefresh } from './infrastructure/scheduler/materialized-view.scheduler.js';
 import { startVehicleOfflineDetector } from './infrastructure/scheduler/vehicle-offline.scheduler.js';
+import type { Logger } from 'pino';
 import type { TimescaleTelemetryRepository } from './infrastructure/persistence/timescale.repository.js';
 import type { TimescaleVehicleRepository } from './infrastructure/persistence/timescale.repository.js';
 
@@ -32,7 +33,7 @@ async function bootstrap() {
   await connectInfrastructure(container);
   await startTelemetryConsumer(container);
 
-  const logger = container.resolve<{ info: (msg: string) => void; error: (obj: unknown, msg: string) => void }>('logger');
+  const logger = container.resolve<Logger>('logger');
 
   startMaterializedViewRefresh(
     container.resolve<TimescaleTelemetryRepository>('telemetryRepo'),
