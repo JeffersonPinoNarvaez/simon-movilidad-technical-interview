@@ -10,6 +10,7 @@ import {
   AlertType,
 } from '@fleet-portal/domain';
 import type {
+  IDeviceRepository,
   IVehicleRepository,
   ITelemetryRepository,
   IAlertRepository,
@@ -20,6 +21,20 @@ import { CircuitBreakerService, OpossumAdapter, CB_SERVICE_BOUNDARIES } from '..
 import type { Logger } from 'pino';
 
 const { Pool } = pg;
+
+export class TimescaleDeviceRepository implements IDeviceRepository {
+  constructor(private readonly pool: pg.Pool) {}
+
+  async findById(id: DeviceId): Promise<{ id: string; vehicleId: string } | null> {
+    const result = await this.pool.query(
+      'SELECT id, vehicle_id FROM devices WHERE id = $1',
+      [id.toString()],
+    );
+    if (result.rows.length === 0) return null;
+    const row = result.rows[0];
+    return { id: row.id as string, vehicleId: row.vehicle_id as string };
+  }
+}
 
 export class TimescaleVehicleRepository implements IVehicleRepository {
   constructor(
@@ -64,6 +79,27 @@ export class TimescaleVehicleRepository implements IVehicleRepository {
       CircuitBreakerService.dbOptions(),
     );
     await update();
+  }
+
+  async markStaleOffline(inactivityMs: number): Promise<string[]> {
+    const mark = this.circuitBreaker.wrap(
+      'db-vehicles-markStaleOffline',
+      async () => {
+        const cutoff = new Date(Date.now() - inactivityMs);
+        const result = await this.pool.query(
+          `UPDATE vehicles
+           SET status = 'offline'
+           WHERE status <> 'offline'
+             AND last_seen IS NOT NULL
+             AND last_seen < $1
+           RETURNING id`,
+          [cutoff],
+        );
+        return result.rows.map((row) => row.id as string);
+      },
+      CircuitBreakerService.dbOptions(),
+    );
+    return mark();
   }
 
   private mapRow(row: Record<string, unknown>): Vehicle {

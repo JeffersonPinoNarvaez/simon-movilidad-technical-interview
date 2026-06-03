@@ -9,7 +9,9 @@ import {
 import { registerRoutes } from './presentation/http/routes.js';
 import type { SocketIoGateway } from './infrastructure/ws/socket-io.gateway.js';
 import { startMaterializedViewRefresh } from './infrastructure/scheduler/materialized-view.scheduler.js';
+import { startVehicleOfflineDetector } from './infrastructure/scheduler/vehicle-offline.scheduler.js';
 import type { TimescaleTelemetryRepository } from './infrastructure/persistence/timescale.repository.js';
+import type { TimescaleVehicleRepository } from './infrastructure/persistence/timescale.repository.js';
 
 function loadConfig(): AppConfig {
   return {
@@ -26,14 +28,21 @@ function loadConfig(): AppConfig {
 async function bootstrap() {
   const config = loadConfig();
   const container = buildContainer(config);
-  const logger = container.resolve<{ info: (msg: string) => void; error: (obj: unknown, msg: string) => void }>('logger');
 
   await connectInfrastructure(container);
   await startTelemetryConsumer(container);
 
+  const logger = container.resolve<{ info: (msg: string) => void; error: (obj: unknown, msg: string) => void }>('logger');
+
   startMaterializedViewRefresh(
     container.resolve<TimescaleTelemetryRepository>('telemetryRepo'),
-    container.resolve('logger'),
+    logger,
+  );
+
+  startVehicleOfflineDetector(
+    container.resolve<TimescaleVehicleRepository>('vehicleRepo'),
+    container.resolve<SocketIoGateway>('wsGateway'),
+    logger,
   );
 
   const app = Fastify({

@@ -8,12 +8,15 @@ import { RedisAdapter } from './infrastructure/cache/redis.adapter.js';
 import { KafkaAdapter } from './infrastructure/messaging/kafka.adapter.js';
 import {
   createPool,
+  TimescaleDeviceRepository,
   TimescaleVehicleRepository,
   TimescaleTelemetryRepository,
   TimescaleAlertRepository,
   TimescaleCriticalZoneRepository,
   TimescaleStoppedSessionRepository,
 } from './infrastructure/persistence/timescale.repository.js';
+import { runVehicleOfflineCheck } from './infrastructure/scheduler/vehicle-offline.scheduler.js';
+import { VEHICLE_OFFLINE_CHECK_MS, VEHICLE_OFFLINE_THRESHOLD_MS } from '@fleet-portal/shared';
 import { LangChainAgentAdapter } from './infrastructure/ai/langchain-agent.adapter.js';
 import { SocketIoGateway } from './infrastructure/ws/socket-io.gateway.js';
 
@@ -66,6 +69,7 @@ export function buildContainer(config: AppConfig) {
     cache: asClass(RedisAdapter).singleton(),
     messageBroker: asClass(KafkaAdapter).singleton(),
     wsGateway: asClass(SocketIoGateway).singleton(),
+    deviceRepo: asClass(TimescaleDeviceRepository).singleton(),
     vehicleRepo: asClass(TimescaleVehicleRepository).singleton(),
     telemetryRepo: asClass(TimescaleTelemetryRepository).singleton(),
     alertRepo: asClass(TimescaleAlertRepository).singleton(),
@@ -87,17 +91,32 @@ export function buildContainer(config: AppConfig) {
 export async function startTelemetryConsumer(container: ReturnType<typeof buildContainer>) {
   const messageBroker = container.resolve<KafkaAdapter>('messageBroker');
   const processTelemetry = container.resolve<ProcessTelemetryUseCase>('processTelemetry');
+  const vehicleRepo = container.resolve<TimescaleVehicleRepository>('vehicleRepo');
+  const wsGateway = container.resolve<SocketIoGateway>('wsGateway');
   const logger = container.resolve<pino.Logger>('logger');
+
+  let lastOfflineCheck = 0;
 
   await messageBroker.subscribe(
     TELEMETRY_TOPIC,
     KAFKA_CONSUMER_GROUP,
     async (message) => {
       await processTelemetry.execute(message as unknown as TelemetryRawMessage);
+
+      const now = Date.now();
+      if (now - lastOfflineCheck >= VEHICLE_OFFLINE_CHECK_MS) {
+        lastOfflineCheck = now;
+        await runVehicleOfflineCheck(
+          vehicleRepo,
+          wsGateway,
+          logger,
+          VEHICLE_OFFLINE_THRESHOLD_MS,
+        );
+      }
     },
   );
 
-  logger.info('Telemetry consumer started');
+  logger.info('Telemetry consumer started (includes throttled vehicle:offline checks)');
 }
 
 export async function connectInfrastructure(container: ReturnType<typeof buildContainer>) {
